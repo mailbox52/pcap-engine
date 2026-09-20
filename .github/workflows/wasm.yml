@@ -1,0 +1,61 @@
+# Place at: .github/workflows/wasm.yml
+# Tests the Rust crate, lints it, builds the Wasm package, and commits the
+# result to src/pkg so Vercel never needs Rust.
+name: wasm
+
+on:
+  push:
+    branches: [main]
+    paths: ["pcap-engine/**", ".github/workflows/wasm.yml"]
+  pull_request:
+    paths: ["pcap-engine/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pcap-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pcap-engine
+
+      - name: Native tests
+        run: cargo test
+
+      - name: Clippy (wasm target, warnings are errors)
+        run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build Wasm package
+        run: wasm-pack build --target web --out-dir ../src/pkg
+
+      - name: Upload Wasm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcap-engine-pkg
+          path: src/pkg
+
+      # wasm-pack writes a .gitignore inside pkg that would hide its own output.
+      - name: Commit src/pkg (main only)
+        if: github.event_name != 'pull_request'
+        working-directory: .
+        run: |
+          rm -f src/pkg/.gitignore
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f src/pkg
+          git diff --cached --quiet || (git commit -m "build: update Wasm package" && git push)
