@@ -45,6 +45,10 @@ export class PcapIndex {
      */
     proto(start: number, end: number): Uint8Array;
     src_port(start: number, end: number): Uint16Array;
+    /**
+     * Whole-capture summary: totals, duration, protocol breakdown, top talkers.
+     */
+    summary(): any;
     ts_nsec(start: number, end: number): Uint32Array;
     ts_sec(start: number, end: number): Uint32Array;
 }
@@ -81,6 +85,7 @@ export interface InitOutput {
     readonly pcapindex_orig_len: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_proto: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_src_port: (a: number, b: number, c: number) => [number, number];
+    readonly pcapindex_summary: (a: number) => [number, number, number];
     readonly pcapindex_ts_nsec: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_ts_sec: (a: number, b: number, c: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

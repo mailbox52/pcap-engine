@@ -178,6 +178,17 @@ export class PcapIndex {
         return v1;
     }
     /**
+     * Whole-capture summary: totals, duration, protocol breakdown, top talkers.
+     * @returns {any}
+     */
+    summary() {
+        const ret = wasm.pcapindex_summary(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @param {number} start
      * @param {number} end
      * @returns {Uint32Array}
@@ -253,6 +264,13 @@ function __wbg_get_imports() {
         __wbg_new_bebc3f4757acf305: function() {
             const ret = new Object();
             return ret;
+        },
+        __wbg_new_ffa92086ea89f79c: function() {
+            const ret = new Array();
+            return ret;
+        },
+        __wbg_set_13d25b81ab403f5e: function(arg0, arg1, arg2) {
+            arg0[arg1 >>> 0] = arg2;
         },
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             arg0[arg1] = arg2;

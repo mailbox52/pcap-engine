@@ -18,6 +18,7 @@ export const pcapindex_offset: (a: number, b: number, c: number) => [number, num
 export const pcapindex_orig_len: (a: number, b: number, c: number) => [number, number];
 export const pcapindex_proto: (a: number, b: number, c: number) => [number, number];
 export const pcapindex_src_port: (a: number, b: number, c: number) => [number, number];
+export const pcapindex_summary: (a: number) => [number, number, number];
 export const pcapindex_ts_nsec: (a: number, b: number, c: number) => [number, number];
 export const pcapindex_ts_sec: (a: number, b: number, c: number) => [number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
