@@ -84,6 +84,25 @@ export class PcapIndex {
         return v1;
     }
     /**
+     * Indexes of the packets matching a filter such as `tcp and port 443`.
+     * An empty query matches every packet. Throws a readable error for a bad
+     * filter; the error's `message` field is the plain text (no position
+     * suffix) and `position` is a 0-based character offset into the query.
+     * @param {string} query
+     * @returns {Uint32Array}
+     */
+    filter(query) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pcapindex_filter(this.__wbg_ptr, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v2;
+    }
+    /**
      * "pcap" or "pcapng".
      * @returns {string}
      */
@@ -275,6 +294,10 @@ function __wbg_get_imports() {
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             arg0[arg1] = arg2;
         },
+        __wbg_set_a377297433dfea63: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = Reflect.set(arg0, arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0) {
             // Cast intrinsic for `F64 -> Externref`.
             const ret = arg0;
@@ -304,6 +327,12 @@ function __wbg_get_imports() {
 const PcapIndexFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pcapindex_free(ptr, 1));
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
 
 function getArrayJsValueFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
@@ -365,6 +394,15 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
 }
 
 function passArray8ToWasm0(arg, malloc) {

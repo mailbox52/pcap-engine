@@ -26,6 +26,13 @@ export class PcapIndex {
     detail(start: number, end: number): Uint16Array;
     dst_port(start: number, end: number): Uint16Array;
     /**
+     * Indexes of the packets matching a filter such as `tcp and port 443`.
+     * An empty query matches every packet. Throws a readable error for a bad
+     * filter; the error's `message` field is the plain text (no position
+     * suffix) and `position` is a 0-based character offset into the query.
+     */
+    filter(query: string): Uint32Array;
+    /**
      * "pcap" or "pcapng".
      */
     format(): string;
@@ -77,6 +84,7 @@ export interface InitOutput {
     readonly pcapindex_count: (a: number) => number;
     readonly pcapindex_detail: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_dst_port: (a: number, b: number, c: number) => [number, number];
+    readonly pcapindex_filter: (a: number, b: number, c: number) => [number, number, number, number];
     readonly pcapindex_format: (a: number) => [number, number];
     readonly pcapindex_ip_version: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_issues: (a: number) => [number, number];
@@ -90,6 +98,8 @@ export interface InitOutput {
     readonly pcapindex_ts_sec: (a: number, b: number, c: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
