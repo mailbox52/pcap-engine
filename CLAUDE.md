@@ -34,7 +34,10 @@ pcap-engine/
 - **Wasm API:** `parse_pcap_bytes(&[u8]) -> PcapIndex` (columns via `ts_sec/ts_nsec/orig_len/cap_len/offset/linktype(start, end)`, plus `count/format/complete/issues`), and `link_preview(packet_bytes, linktype)` returning a `LinkPreview` object.
 - **The file stays in JS.** The index stores each packet's byte `offset`; for a detail view the worker passes only that packet's slice to `link_preview`. Wasm never retains the file.
 - **Legacy big-endian pcap** needed custom handling: `pcap-parser`'s `LegacyPcapSlice` iterator decodes only little-endian records. `core.rs` calls `parse_pcap_frame_be` itself. Keep the big-endian tests.
-- **Next:** run the two unchecked Phase 1 items on a machine with Rust + wasm32, then start Phase 2.
+- **Phase 1 is done.** The GitHub Actions workflow (`.github/workflows/wasm.yml`) runs the tests, clippy, and `wasm-pack build` on every change under `pcap-engine/`, and commits the result to `src/pkg`. The developer machine has no Rust toolchain, so Wasm rebuilds happen in CI: push, wait for the run, then `git pull`.
+- **Phase 2 is written.** Next.js 15 (webpack), Tailwind 4. `src/lib/parse-file.ts` holds the worker logic (read file, parse, batch, dissect) with no worker globals; `src/workers/pcap.worker.ts` is a thin shell around it. `src/lib/messages.ts` is the message contract. `src/components/PcapUploader.tsx` is the picker, live packet counter, and a table of the first 20 packets.
+- **Checked so far:** `npm run typecheck`; `npm run build` (the worker chunk and `pcap_engine_bg.wasm` are emitted, and served as `application/wasm`); and `npm run verify`, which runs the real compiled `src/pkg` Wasm through the same parse/dissect code in Node (batching, pcap and pcapng, truncated and garbage input, single-packet dissect). **Not yet checked:** running in a real browser.
+- **Next:** open the app in a browser and load a real capture; then Phase 3 (virtualized list with `@tanstack/react-virtual`, click a row to `dissect`).
 
 ## Design Decisions (v1)
 - **Whole-file parse, size-capped.** The worker reads the file into memory, copies it into Wasm, and parses. Cap at **256 MB** with a clear error above that. Streaming / chunked parsing is a v2 feature.
@@ -70,11 +73,12 @@ type WorkerOut =
 - [ ] `cargo clippy --target wasm32-unknown-unknown -- -D warnings` is clean. (Not yet run: `cargo build` is warning-free under `RUSTFLAGS="-D warnings"`, but clippy was unavailable when the crate was written.)
 - [ ] `wasm-pack build --target web --out-dir ../src/pkg` succeeds. (Not yet run; needs a machine with the wasm32 target.)
 
-### Phase 2: Worker Bridge
-- [ ] `next.config.mjs` enables `asyncWebAssembly`.
-- [ ] Worker created with `new Worker(new URL('../workers/pcap.worker.ts', import.meta.url))` in a `"use client"` component.
-- [ ] Worker sends `batch` messages with transferred typed arrays, then `done`.
-- [ ] Bad input produces an `error` message, not a hung UI.
+### Phase 2: Worker Bridge (written; see Status)
+- [x] `next.config.mjs` enables `asyncWebAssembly`.
+- [x] Worker created with `new Worker(new URL('../workers/pcap.worker.ts', import.meta.url))` in a `"use client"` component.
+- [x] Worker sends `batch` messages with transferred typed arrays, then `done`.
+- [x] Bad input produces an `error` message, not a hung UI.
+- [ ] Confirmed working in a real browser with a real capture file (not yet done).
 
 ### Phase 3: UI
 - [ ] Choosing a file (drag-drop or picker) updates a live packet counter.
@@ -128,9 +132,11 @@ type WorkerOut =
 # Build Wasm (run locally, commit src/pkg)
 npm run wasm        # cd pcap-engine && wasm-pack build --target web --out-dir ../src/pkg
 
-npm run dev         # Next dev server
+npm run dev         # Next dev server (webpack)
 npm run build       # Production build (uses committed src/pkg)
-cargo test          # from pcap-engine/
+npm run typecheck   # tsc --noEmit
+npm run verify      # Runs the compiled src/pkg Wasm through the worker logic in Node
+cargo test          # from pcap-engine/ (needs Rust; CI runs it otherwise)
 ```
 Do not add `wasm` to `prebuild` or `predev` for Vercel; run it manually when the Rust changes.
 
