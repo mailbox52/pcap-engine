@@ -1,0 +1,16 @@
+{
+  "name": "pcap-engine",
+  "type": "module",
+  "description": "Client-side .pcap / .pcapng parser compiled to WebAssembly",
+  "version": "0.1.0",
+  "files": [
+    "pcap_engine_bg.wasm",
+    "pcap_engine.js",
+    "pcap_engine.d.ts"
+  ],
+  "main": "pcap_engine.js",
+  "types": "pcap_engine.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
