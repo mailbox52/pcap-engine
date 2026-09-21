@@ -37,7 +37,11 @@ pcap-engine/
 - **Phase 1 is done.** The GitHub Actions workflow (`.github/workflows/wasm.yml`) runs the tests, clippy, and `wasm-pack build` on every change under `pcap-engine/`, and commits the result to `src/pkg`. The developer machine has no Rust toolchain, so Wasm rebuilds happen in CI: push, wait for the run, then `git pull`.
 - **Phase 2 is written.** Next.js 15 (webpack), Tailwind 4. `src/lib/parse-file.ts` holds the worker logic (read file, parse, batch, dissect) with no worker globals; `src/workers/pcap.worker.ts` is a thin shell around it. `src/lib/messages.ts` is the message contract. `src/components/PcapUploader.tsx` is the picker, live packet counter, and a table of the first 20 packets.
 - **Checked so far:** `npm run typecheck`; `npm run build` (the worker chunk and `pcap_engine_bg.wasm` are emitted, and served as `application/wasm`); and `npm run verify`, which runs the real compiled `src/pkg` Wasm through the same parse/dissect code in Node (batching, pcap and pcapng, truncated and garbage input, single-packet dissect). **Not yet checked:** running in a real browser.
-- **Next:** open the app in a browser and load a real capture; then Phase 3 (virtualized list with `@tanstack/react-virtual`, click a row to `dissect`).
+- **Phase 2 confirmed in a real browser** with `sample.pcap`, `sample.pcapng`, and a non-capture file (error message shown, page stays usable).
+- **Phase 3 is written.** `src/lib/packet-store.ts` keeps the columns on the main thread in preallocated typed arrays (about 22 bytes per packet, filled as batches arrive). `PacketList.tsx` is the virtualized list, `PacketDetail.tsx` the detail panel (timestamp, lengths, MACs, EtherType/VLAN, IPv4 fields, hex dump of the first 32 bytes). Rows are clickable only after loading finishes. Dissect errors carry `scope: "dissect"` so they only affect the detail panel.
+- **Checked so far:** typecheck, build, `npm run verify` (now includes the store, formatting helpers, and size cap), the detail panel rendered on the server, and a synthetic 1,000,000-packet, 110 MB capture parsed through the real Wasm in about 250 ms into 100 batches. **Not yet checked:** scrolling that capture in a browser.
+- **Known limit:** rows are 24 px, so 1M packets make a 24M px scroll area. Chrome allows about 33M px, Firefox about 17.9M px (roughly 745k rows). Beyond that in Firefox the list needs a windowing workaround.
+- **Next:** try `npm run make-capture` and scroll the big file in a browser; then Phase 4 (readable rows with protocol and addresses, summary panel, filters, bundled sample, privacy note).
 
 ## Design Decisions (v1)
 - **Whole-file parse, size-capped.** The worker reads the file into memory, copies it into Wasm, and parses. Cap at **256 MB** with a clear error above that. Streaming / chunked parsing is a v2 feature.
@@ -80,11 +84,12 @@ type WorkerOut =
 - [x] Bad input produces an `error` message, not a hung UI.
 - [ ] Confirmed working in a real browser with a real capture file (not yet done).
 
-### Phase 3: UI
-- [ ] Choosing a file (drag-drop or picker) updates a live packet counter.
-- [ ] List is virtualized; scrolling a 1M-packet capture shows no long frames in the Chrome Performance panel.
-- [ ] Selecting a row shows dissected detail.
-- [ ] Files over the cap show a clear error.
+### Phase 3: UI (written; needs a browser check on a big capture)
+- [x] Choosing a file (drag-drop or picker) updates a live packet counter.
+- [x] List is virtualized (`@tanstack/react-virtual`); only visible rows exist in the DOM.
+- [ ] Scrolling a 1M-packet capture shows no long frames in the Chrome Performance panel (`npm run make-capture` makes the file; not yet checked in a browser).
+- [x] Selecting a row (click, or arrow keys / Page Up/Down / Home / End) shows dissected detail.
+- [x] Files over the cap show a clear error (checked in `npm run verify`).
 
 ### Phase 4: Make It Useful (v1.5)
 Build after Phases 1-3 work end to end. Each item is independent, so ship them in this order.
@@ -136,6 +141,7 @@ npm run dev         # Next dev server (webpack)
 npm run build       # Production build (uses committed src/pkg)
 npm run typecheck   # tsc --noEmit
 npm run verify      # Runs the compiled src/pkg Wasm through the worker logic in Node
+npm run make-capture -- 1000000 big.pcap   # synthetic large capture (about 110 MB) for scroll testing
 cargo test          # from pcap-engine/ (needs Rust; CI runs it otherwise)
 ```
 Do not add `wasm` to `prebuild` or `predev` for Vercel; run it manually when the Rust changes.

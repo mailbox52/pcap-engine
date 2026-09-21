@@ -3,3 +3,4 @@ node_modules/
 pcap-engine/target/
 next-env.d.ts
 tsconfig.tsbuildinfo
+big*.pcap

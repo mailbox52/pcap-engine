@@ -5,8 +5,10 @@
  */
 import { readFileSync } from "node:fs";
 import { initSync, link_preview, parse_pcap_bytes } from "../src/pkg/pcap_engine.js";
-import { BATCH_SIZE, type WorkerOut } from "../src/lib/messages";
+import { BATCH_SIZE, MAX_FILE_BYTES, type WorkerOut } from "../src/lib/messages";
 import { dissectPacket, parseFile } from "../src/lib/parse-file";
+import { PacketStore } from "../src/lib/packet-store";
+import { etherTypeName, hexLines, ipProtocolName, linkTypeName } from "../src/lib/format";
 
 initSync({ module: readFileSync(new URL("../src/pkg/pcap_engine_bg.wasm", import.meta.url)) });
 const engine = { parse_pcap_bytes, link_preview };
@@ -64,6 +66,7 @@ function pcapngFile(count: number): Buffer {
   return Buffer.concat(blocks);
 }
 
+const eth_ipv4_bytes = () => new Uint8Array(ethIpv4(0));
 const toFile = (b: Buffer, name: string) => new File([new Uint8Array(b)], name);
 
 async function run(file: File) {
@@ -152,5 +155,52 @@ async function run(file: File) {
   check("empty: error message", empty.index === null && empty.msgs.some((m) => m.type === "error"));
 }
 
+// ---- 5. main-thread store and formatting helpers ----
+{
+  const N = BATCH_SIZE * 2 + 500;
+  const { msgs, index } = await run(toFile(pcapFile(N), "store.pcap"));
+  const store = new PacketStore();
+  for (const m of msgs) {
+    if (m.type === "started") store.reset(m.total);
+    else if (m.type === "batch") store.add(m);
+  }
+  check("store: holds every packet from all batches", store.count === N && store.total === N);
+  check(
+    "store: random access matches the source data",
+    store.tsSec[0] === 1_700_000_000 && store.tsSec[N - 1] === 1_700_000_000 + N - 1 &&
+      store.tsSec[BATCH_SIZE] === 1_700_000_000 + BATCH_SIZE && store.linktype[N - 1] === 1,
+  );
+  check("store: relative time is exact", store.relativeSeconds(0) === 0 && store.relativeSeconds(10) === 10);
+  check("store: ISO timestamp with nanoseconds", store.isoTime(0) === "2023-11-14T22:13:20.500000000Z", store.isoTime(0));
+  store.add({ type: "batch", start: N, tsSec: new Uint32Array(5), tsNsec: new Uint32Array(5), origLen: new Uint32Array(5), capLen: new Uint32Array(5), offset: new Uint32Array(5), linktype: new Uint16Array(5) });
+  check("store: ignores batches outside the announced total", store.count === N);
+  index?.free();
+
+  check("format: link and protocol names", linkTypeName(1) === "Ethernet" && linkTypeName(999) === "Type 999" && ipProtocolName(6) === "6 (TCP)" && etherTypeName(0x0800) === "0x0800 (IPv4)");
+  const lines = hexLines("48656c6c6f2c20776f726c6421000102" + "ff");
+  check(
+    "format: hex dump lines",
+    lines.length === 2 && lines[0].offset === "0000" && lines[0].ascii === "Hello, world!..." && lines[1].offset === "0010" && lines[1].bytes === "ff" && lines[1].ascii === ".",
+  );
+}
+
+// ---- 6. size cap ----
+{
+  // A stand-in with a huge size: the cap check must fire before the file is read.
+  const huge = { size: MAX_FILE_BYTES + 1, arrayBuffer: () => { throw new Error("should not be read"); } } as unknown as File;
+  const { msgs, index } = await run(huge);
+  check("size cap: oversized file rejected before reading", index === null && msgs.length === 1 && msgs[0].type === "error" && /too large/i.test(msgs[0].message));
+}
+
+// ---- 7. optional fields from Rust arrive as undefined, not null ----
+{
+  const pkt = eth_ipv4_bytes();
+  const p = link_preview(pkt, 1) as Record<string, unknown>;
+  check(
+    "link_preview: missing optional fields are undefined (UI must use != null)",
+    p.vlan_id === undefined && p.ethertype === 0x0800 && typeof p.dst_mac === "string",
+  );
+}
+
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
-process.exit(failures === 0 ? 0 : 1);
+process.exitCode = failures === 0 ? 0 : 1;

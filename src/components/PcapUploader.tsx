@@ -1,17 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { PacketBatch, Stage, WorkerIn, WorkerOut } from "@/lib/messages";
-
-const PREVIEW_ROWS = 20;
-
-interface Row {
-  n: number;
-  time: string;
-  origLen: number;
-  capLen: number;
-  linktype: number;
-}
+import type { LinkPreview, Stage, WorkerIn, WorkerOut } from "@/lib/messages";
+import { PacketStore } from "@/lib/packet-store";
+import PacketDetail from "./PacketDetail";
+import PacketList from "./PacketList";
 
 interface State {
   status: "idle" | "working" | "done" | "error";
@@ -19,12 +12,15 @@ interface State {
   stage: Stage | null;
   format: string;
   total: number | null;
+  /** Packets received from the worker so far; also drives list re-renders. */
   received: number;
-  rows: Row[];
   complete: boolean;
   issues: string[];
   elapsedMs: number | null;
   error: string | null;
+  selected: number | null;
+  detail: LinkPreview | null;
+  detailError: string | null;
 }
 
 const initial: State = {
@@ -34,35 +30,20 @@ const initial: State = {
   format: "",
   total: null,
   received: 0,
-  rows: [],
   complete: true,
   issues: [],
   elapsedMs: null,
   error: null,
+  selected: null,
+  detail: null,
+  detailError: null,
 };
 
 type Action =
   | { type: "start"; fileName: string }
   | { type: "msg"; msg: WorkerOut }
-  | { type: "fail"; message: string };
-
-/** Rows for the first packets of a batch, with time in seconds relative to that batch's first packet. */
-function previewRows(b: PacketBatch): Row[] {
-  const rows: Row[] = [];
-  const count = Math.min(PREVIEW_ROWS, b.tsSec.length);
-  for (let i = 0; i < count; i++) {
-    // Exact sec + nsec columns, subtracted before converting to float.
-    const secs = b.tsSec[i] - b.tsSec[0] + (b.tsNsec[i] - b.tsNsec[0]) / 1e9;
-    rows.push({
-      n: b.start + i + 1,
-      time: secs.toFixed(6),
-      origLen: b.origLen[i],
-      capLen: b.capLen[i],
-      linktype: b.linktype[i],
-    });
-  }
-  return rows;
-}
+  | { type: "fail"; message: string }
+  | { type: "select"; index: number };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -70,6 +51,8 @@ function reducer(state: State, action: Action): State {
       return { ...initial, status: "working", fileName: action.fileName };
     case "fail":
       return { ...state, status: "error", error: action.message };
+    case "select":
+      return { ...state, selected: action.index, detail: null, detailError: null };
     case "msg": {
       const m = action.msg;
       switch (m.type) {
@@ -77,11 +60,8 @@ function reducer(state: State, action: Action): State {
           return { ...state, stage: m.stage };
         case "started":
           return { ...state, format: m.format, total: m.total };
-        case "batch": {
-          const rows =
-            state.rows.length === 0 && m.start === 0 ? previewRows(m) : state.rows;
-          return { ...state, received: state.received + m.tsSec.length, rows };
-        }
+        case "batch":
+          return { ...state, received: state.received + m.tsSec.length };
         case "done":
           return {
             ...state,
@@ -93,7 +73,11 @@ function reducer(state: State, action: Action): State {
             issues: m.issues,
             elapsedMs: m.elapsedMs,
           };
+        case "packet":
+          // Ignore replies for a row that is no longer selected.
+          return m.index === state.selected ? { ...state, detail: m.preview, detailError: null } : state;
         case "error":
+          if (m.scope === "dissect") return { ...state, detailError: m.message };
           return { ...state, status: "error", stage: null, error: m.message };
         default:
           return state;
@@ -111,6 +95,7 @@ const STAGE_LABEL: Record<Stage, string> = {
 export default function PcapUploader() {
   const [state, dispatch] = useReducer(reducer, initial);
   const [dragging, setDragging] = useState(false);
+  const [store] = useState(() => new PacketStore());
   const workerRef = useRef<Worker | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -125,6 +110,7 @@ export default function PcapUploader() {
     (file: File) => {
       // A fresh worker per file: terminating the old one cancels any parse in flight.
       stopWorker();
+      store.reset(0);
       dispatch({ type: "start", fileName: file.name });
 
       let worker: Worker;
@@ -138,7 +124,11 @@ export default function PcapUploader() {
 
       worker.onmessage = (event: MessageEvent<WorkerOut>) => {
         if (workerRef.current !== worker) return; // stale worker
-        dispatch({ type: "msg", msg: event.data });
+        const msg = event.data;
+        // The store is filled before the dispatch, so any render sees the data.
+        if (msg.type === "started") store.reset(msg.total);
+        else if (msg.type === "batch") store.add(msg);
+        dispatch({ type: "msg", msg });
       };
       worker.onerror = (event) => {
         if (workerRef.current !== worker) return;
@@ -148,8 +138,14 @@ export default function PcapUploader() {
       const msg: WorkerIn = { type: "parse", file };
       worker.postMessage(msg);
     },
-    [stopWorker],
+    [stopWorker, store],
   );
+
+  const selectPacket = useCallback((index: number) => {
+    dispatch({ type: "select", index });
+    const msg: WorkerIn = { type: "dissect", index };
+    workerRef.current?.postMessage(msg);
+  }, []);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -159,6 +155,7 @@ export default function PcapUploader() {
   };
 
   const working = state.status === "working";
+  const showList = state.received > 0;
 
   return (
     <div>
@@ -173,7 +170,7 @@ export default function PcapUploader() {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        className={`cursor-pointer rounded-xl border border-dashed px-6 py-12 text-center transition-colors ${
+        className={`cursor-pointer rounded-xl border border-dashed px-6 py-10 text-center transition-colors ${
           dragging ? "border-sky-400 bg-sky-400/10" : "border-zinc-700 hover:border-zinc-500"
         }`}
       >
@@ -241,33 +238,27 @@ export default function PcapUploader() {
             </ul>
           )}
 
-          {state.rows.length > 0 && (
-            <div className="mt-6 overflow-x-auto rounded-lg border border-zinc-800">
-              <table className="w-full text-left text-xs tabular-nums">
-                <thead className="bg-zinc-900 text-zinc-400">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">#</th>
-                    <th className="px-3 py-2 font-medium">Time (s)</th>
-                    <th className="px-3 py-2 font-medium">Original</th>
-                    <th className="px-3 py-2 font-medium">Captured</th>
-                    <th className="px-3 py-2 font-medium">Link type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {state.rows.map((r) => (
-                    <tr key={r.n} className="border-t border-zinc-800">
-                      <td className="px-3 py-1.5 text-zinc-500">{r.n}</td>
-                      <td className="px-3 py-1.5">{r.time}</td>
-                      <td className="px-3 py-1.5">{r.origLen}</td>
-                      <td className="px-3 py-1.5">{r.capLen}</td>
-                      <td className="px-3 py-1.5">{r.linktype}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {state.received > PREVIEW_ROWS && (
-                <p className="border-t border-zinc-800 px-3 py-2 text-xs text-zinc-500">
-                  Showing the first {PREVIEW_ROWS} packets. The full scrolling list comes next.
+          {showList && (
+            <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+              <PacketList
+                store={store}
+                count={state.received}
+                selected={state.selected}
+                interactive={state.status === "done"}
+                onSelect={selectPacket}
+              />
+              {state.selected !== null ? (
+                <PacketDetail
+                  store={store}
+                  index={state.selected}
+                  preview={state.detail}
+                  error={state.detailError}
+                />
+              ) : (
+                <p className="rounded-lg border border-dashed border-zinc-800 p-4 text-xs text-zinc-500">
+                  {state.status === "done"
+                    ? "Select a packet to see its details. Arrow keys, Page Up/Down, Home and End also work."
+                    : "Details are available once loading finishes."}
                 </p>
               )}
             </div>

@@ -43,7 +43,7 @@ ctx.onmessage = async (event: MessageEvent<WorkerIn>) => {
     if (index) current = { file: msg.file, index };
   } else if (msg.type === "dissect") {
     if (!current) {
-      emit({ type: "error", message: "No capture is loaded." });
+      emit({ type: "error", message: "No capture is loaded.", scope: "dissect" });
       return;
     }
     await dissectPacket(engine, current.file, current.index, msg.index, emit);

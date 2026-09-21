@@ -93,6 +93,6 @@ export async function dissectPacket(
     const preview = engine.link_preview(bytes, linktype) as LinkPreview;
     emit({ type: "packet", index: packetIndex, preview });
   } catch (e) {
-    emit({ type: "error", message: errorMessage(e) });
+    emit({ type: "error", message: errorMessage(e), scope: "dissect" });
   }
 }

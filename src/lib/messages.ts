@@ -6,15 +6,19 @@ export const MAX_FILE_BYTES = 256 * 1024 * 1024;
 /** Packets per `batch` message. */
 export const BATCH_SIZE = 10_000;
 
-/** Shape returned by the Rust `link_preview` function (see pcap-engine/src/link.rs). */
+/**
+ * Shape returned by the Rust `link_preview` function (see pcap-engine/src/link.rs).
+ * serde-wasm-bindgen turns Rust `None` into `undefined`, not `null`, so the
+ * optional fields are missing rather than null. Always test them with `!= null`.
+ */
 export interface LinkPreview {
   kind: string;
   summary: string;
-  dst_mac: string | null;
-  src_mac: string | null;
-  ethertype: number | null;
-  vlan_id: number | null;
-  ipv4: {
+  dst_mac?: string | null;
+  src_mac?: string | null;
+  ethertype?: number | null;
+  vlan_id?: number | null;
+  ipv4?: {
     src: string;
     dst: string;
     protocol: number;
@@ -56,6 +60,11 @@ export type WorkerOut =
       elapsedMs: number;
     }
   | { type: "packet"; index: number; preview: LinkPreview }
-  | { type: "error"; message: string };
+  | {
+      type: "error";
+      message: string;
+      /** "dissect" errors only affect the detail panel; anything else ends the parse. */
+      scope?: "parse" | "dissect";
+    };
 
 export type Emit = (msg: WorkerOut, transfer?: Transferable[]) => void;
