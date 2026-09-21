@@ -6,6 +6,7 @@
 pub mod core;
 pub mod dissect;
 pub mod link;
+pub mod summary;
 
 use wasm_bindgen::prelude::*;
 
@@ -90,6 +91,12 @@ impl PcapIndex {
     /// Protocol-specific value per packet (TCP flags, ICMP type/code, ARP op, ...).
     pub fn detail(&self, start: u32, end: u32) -> Vec<u16> {
         self.inner.detail[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// Whole-capture summary: totals, duration, protocol breakdown, top talkers.
+    pub fn summary(&self) -> Result<JsValue, JsError> {
+        let s = summary::summarize(&self.inner);
+        serde_wasm_bindgen::to_value(&s).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// 32 bytes per packet: 16-byte source address then 16-byte destination.

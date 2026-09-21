@@ -59,3 +59,35 @@ export function hexLines(hex: string): HexLine[] {
   }
   return lines;
 }
+
+/** "1.50 KB", "105 MB", ... for byte counts. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${Math.round(n)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n;
+  let u = -1;
+  do {
+    v /= 1024;
+    u++;
+  } while (v >= 1024 && u < units.length - 1);
+  const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+  return `${v.toFixed(digits)} ${units[u]}`;
+}
+
+/** "250 ms", "12.35 s", "42 min 27 s", "1 h 02 min". */
+export function formatDuration(secs: number): string {
+  if (!(secs > 0)) return "0 s";
+  if (secs < 1) return `${Math.round(secs * 1000)} ms`;
+  if (secs < 59.995) return `${secs.toFixed(2)} s`;
+  const total = Math.round(secs);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min ${s} s`;
+}
+
+/** ISO-8601 UTC timestamp with nanoseconds: 2023-11-14T22:13:20.500000000Z */
+export function isoTimestamp(sec: number, nsec: number): string {
+  const base = new Date(sec * 1000).toISOString().slice(0, 19);
+  return `${base}.${String(nsec).padStart(9, "0")}Z`;
+}

@@ -42,8 +42,9 @@ pcap-engine/
 - **Checked so far:** typecheck, build, `npm run verify` (now includes the store, formatting helpers, and size cap), the detail panel rendered on the server, and a synthetic 1,000,000-packet, 110 MB capture parsed through the real Wasm in about 250 ms into 100 batches. **Not yet checked:** scrolling that capture in a browser.
 - **Known limit:** rows are 24 px, so 1M packets make a 24M px scroll area. Chrome allows about 33M px, Firefox about 17.9M px (roughly 745k rows). Beyond that in Firefox the list needs a windowing workaround.
 - **Phase 3 confirmed in a real browser**, including a 1,000,000-packet capture (a browser freeze seen once in dev mode on the developer's laptop did not recur and was put down to the machine; 200k packets was always smooth).
-- **Phase 4a is written** (see Phase 4). Order of work: push, wait for the GitHub Actions run to rebuild `src/pkg` (it also runs the new Rust tests and clippy on the wasm32 target, which were only run natively when the code was written), `git pull`, then `npm run verify` (now 41 checks; the protocol ones only pass against the rebuilt Wasm) and `npm run dev`. The main-thread store is now about 60 bytes per packet (about 60 MB per million).
-- **Next:** confirm 4a in a browser; then 4b summary panel, 4c filters, 4d bundled sample, 4e privacy note (already on the page).
+- **Phase 4a is done and confirmed in a browser.** Order of work: push, wait for the GitHub Actions run to rebuild `src/pkg` (it also runs the new Rust tests and clippy on the wasm32 target, which were only run natively when the code was written), `git pull`, then `npm run verify` (now 41 checks; the protocol ones only pass against the rebuilt Wasm) and `npm run dev`. The main-thread store is now about 60 bytes per packet (about 60 MB per million).
+- **Phase 4b is written:** `SummaryPanel.tsx` above the list. Same order of work as before: push, wait for the Actions run to rebuild `src/pkg`, `git pull`, then `npm run verify` (now 49 checks; the 5 summary ones only pass against the rebuilt Wasm). The list layout was also tightened so the Info column is visible without horizontal scrolling at typical widths.
+- **Next:** confirm 4b in a browser; then 4c filters, 4d bundled sample. (4e, the privacy note, is already on the page.)
 
 ## Design Decisions (v1)
 - **Whole-file parse, size-capped.** The worker reads the file into memory, copies it into Wasm, and parses. Cap at **256 MB** with a clear error above that. Streaming / chunked parsing is a v2 feature.
@@ -98,17 +99,18 @@ type WorkerOut =
 ### Phase 4: Make It Useful (v1.5)
 Build after Phases 1-3 work end to end. Each item is independent, so ship them in this order.
 
-**4a. Readable rows (protocol, addresses, ports)** (written; needs the CI Wasm build and a browser check)
+**4a. Readable rows (protocol, addresses, ports)** (done, confirmed in a browser)
 - [x] Rust parses Ethernet (with VLAN), Linux cooked, raw IP and loopback framing, then IPv4/IPv6 (including extension headers), TCP, UDP, ICMP, ICMPv6, ARP, and DNS by port. `pcap-engine/src/dissect.rs`, 14 unit tests plus prefix-truncation fuzzing.
-- [ ] Each list row shows time, source, destination, protocol label, length, and a short info string (e.g. `443 → 51234 [SYN, ACK]`). Written; not yet seen in a browser.
+- [x] Each list row shows time, source, destination, protocol label, length, and a short info string (e.g. `443 → 51234 [SYN, ACK]`).
 - [x] Batch output gains typed-array columns: `proto`, `ipVer`, `srcPort`, `dstPort`, `detail` (TCP flags / ICMP type+code / ARP op / IP protocol / EtherType), and `addr` (32 bytes per packet: 16-byte source then 16-byte destination; IPv4 uses the first 4 bytes). No per-packet objects.
 - [x] Unknown or unsupported protocols show as "Other" and never break parsing.
 
-**4b. Summary panel**
-- [ ] After loading: total packets, total bytes, capture duration, average packet size.
-- [ ] Protocol breakdown (count and percent).
-- [ ] Top talkers: top 10 IPs by bytes.
-- [ ] Computed in Rust in one pass and returned as a single `summary` message.
+**4b. Summary panel** (written; needs the CI Wasm build and a browser check)
+- [x] After loading: total packets, capture duration, size on the wire (and captured size when the two differ), average packet size, start and end time (UTC).
+- [x] Protocol breakdown (count and percent, with bars).
+- [x] Top talkers: top 10 addresses by bytes. An address counts every packet it appears in, once per packet, in either direction.
+- [x] Computed in Rust in one pass (`pcap-engine/src/summary.rs`, 8 tests; about 120 ms natively for 1M packets) and sent as a single `summary` message just before `done`.
+- [ ] Seen in a browser.
 
 **4c. Search and filters**
 - [ ] A search box accepting simple terms: a protocol (`tcp`), an IP (`192.168.1.5`), or a port (`port 443`). Combine with `and`.
@@ -129,9 +131,7 @@ type WorkerIn =
   | { type: 'filter'; query: string };            // added
 
 type WorkerOut =
-  | { type: 'summary'; totalPackets: number; totalBytes: number; durationSec: number;
-      protocols: { name: string; count: number }[];
-      topTalkers: { ip: string; bytes: number }[] }
+  | { type: 'summary'; summary: CaptureSummary }   // shape in src/lib/messages.ts
   | { type: 'filtered'; indexes: Uint32Array }    // transferred
   | { type: 'filterError'; message: string };
 ```

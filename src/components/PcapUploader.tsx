@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { LinkPreview, Stage, WorkerIn, WorkerOut } from "@/lib/messages";
+import type { CaptureSummary, LinkPreview, Stage, WorkerIn, WorkerOut } from "@/lib/messages";
 import { PacketStore } from "@/lib/packet-store";
 import PacketDetail from "./PacketDetail";
 import PacketList from "./PacketList";
+import SummaryPanel from "./SummaryPanel";
 
 interface State {
   status: "idle" | "working" | "done" | "error";
@@ -17,6 +18,7 @@ interface State {
   complete: boolean;
   issues: string[];
   elapsedMs: number | null;
+  summary: CaptureSummary | null;
   error: string | null;
   selected: number | null;
   detail: LinkPreview | null;
@@ -33,6 +35,7 @@ const initial: State = {
   complete: true,
   issues: [],
   elapsedMs: null,
+  summary: null,
   error: null,
   selected: null,
   detail: null,
@@ -62,6 +65,8 @@ function reducer(state: State, action: Action): State {
           return { ...state, format: m.format, total: m.total };
         case "batch":
           return { ...state, received: state.received + m.tsSec.length };
+        case "summary":
+          return { ...state, summary: m.summary };
         case "done":
           return {
             ...state,
@@ -238,8 +243,14 @@ export default function PcapUploader() {
             </ul>
           )}
 
+          {state.summary && (
+            <div className="mt-6">
+              <SummaryPanel summary={state.summary} />
+            </div>
+          )}
+
           {showList && (
-            <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
               <PacketList
                 store={store}
                 count={state.received}

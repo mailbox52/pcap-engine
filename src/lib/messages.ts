@@ -28,6 +28,24 @@ export interface LinkPreview {
   header_hex: string;
 }
 
+/** Whole-capture summary from the Rust `summary()` (see pcap-engine/src/summary.rs). */
+export interface CaptureSummary {
+  totalPackets: number;
+  /** Sum of original packet lengths (bytes on the wire). */
+  totalBytes: number;
+  /** Sum of captured lengths (bytes stored in the file). */
+  capturedBytes: number;
+  firstSec: number;
+  firstNsec: number;
+  lastSec: number;
+  lastNsec: number;
+  durationSecs: number;
+  /** Protocols that occur, most packets first. */
+  protocols: { proto: number; packets: number; bytes: number }[];
+  /** Up to 10 addresses, most bytes first. */
+  topTalkers: { ipVersion: number; addr: number[]; packets: number; bytes: number }[];
+}
+
 export type Stage = "reading" | "parsing" | "sending";
 
 export type WorkerIn =
@@ -60,6 +78,7 @@ export type WorkerOut =
   | { type: "status"; stage: Stage }
   | { type: "started"; format: string; total: number }
   | PacketBatch
+  | { type: "summary"; summary: CaptureSummary }
   | {
       type: "done";
       total: number;

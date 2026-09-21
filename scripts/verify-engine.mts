@@ -8,7 +8,7 @@ import { initSync, link_preview, parse_pcap_bytes } from "../src/pkg/pcap_engine
 import { BATCH_SIZE, MAX_FILE_BYTES, type WorkerOut } from "../src/lib/messages";
 import { dissectPacket, parseFile } from "../src/lib/parse-file";
 import { PacketStore } from "../src/lib/packet-store";
-import { etherTypeName, hexLines, ipProtocolName, linkTypeName } from "../src/lib/format";
+import { etherTypeName, formatBytes, formatDuration, hexLines, ipProtocolName, isoTimestamp, linkTypeName } from "../src/lib/format";
 import { addressText, formatIPv6, infoText, protocolName, tcpFlagNames } from "../src/lib/summary";
 
 initSync({ module: readFileSync(new URL("../src/pkg/pcap_engine_bg.wasm", import.meta.url)) });
@@ -252,6 +252,30 @@ async function run(file: File) {
   check("info: ARP request", infoText(store, 3) === "Who has 10.0.0.9? Tell 10.0.0.1", infoText(store, 3));
   check("info: IPv6 TCP", infoText(store, 4) === "22 → 60000 [SYN]", infoText(store, 4));
   check("info: unknown EtherType", infoText(store, 5) === "EtherType 0x88cc (LLDP)", infoText(store, 5));
+
+  const smIdx = msgs.findIndex((m) => m.type === "summary");
+  const sm = smIdx >= 0 ? msgs[smIdx] : undefined;
+  const summary = sm?.type === "summary" ? sm.summary : undefined;
+  check("summary: sent once, before done", smIdx >= 0 && smIdx < msgs.findIndex((m) => m.type === "done"));
+  check(
+    "summary: totals and duration",
+    summary?.totalPackets === 6 && summary.totalBytes === 298 && summary.capturedBytes === 298 &&
+      summary.firstSec === 100 && summary.lastSec === 105 && summary.durationSecs === 5,
+    JSON.stringify(summary && { p: summary.totalPackets, b: summary.totalBytes, d: summary.durationSecs }),
+  );
+  check(
+    "summary: protocol breakdown (TCP 2 first)",
+    summary?.protocols[0]?.proto === 1 && summary.protocols[0].packets === 2 && summary.protocols[0].bytes === 128 && summary.protocols.length === 5,
+  );
+  const t = summary?.topTalkers ?? [];
+  check(
+    "summary: top talkers ranked by bytes (both directions counted)",
+    t.length === 7 && t[0].ipVersion === 4 && t[0].addr.slice(0, 4).join(".") === "10.0.0.1" && t[0].bytes === 96 && t[0].packets === 2,
+  );
+  check(
+    "summary: IPv6 talker",
+    t[3]?.ipVersion === 6 && formatIPv6(Uint8Array.from(t[3].addr), 0) === "2001:db8::1" && t[3].bytes === 74,
+  );
   index?.free();
 }
 
@@ -264,6 +288,9 @@ async function run(file: File) {
   check("ipv6: single zero group not compressed", formatIPv6(v6(1, 0, 2, 3, 4, 5, 6, 7), 0) === "1:0:2:3:4:5:6:7");
   check("ipv6: longest run wins", formatIPv6(v6(1, 0, 0, 2, 0, 0, 0, 3), 0) === "1:0:0:2::3");
   check("ipv6: trailing zeros", formatIPv6(v6(0xfe80, 0, 0, 0, 0, 0, 0, 0), 0) === "fe80::");
+  check("bytes: formatting", formatBytes(0) === "0 B" && formatBytes(298) === "298 B" && formatBytes(1024) === "1.00 KB" && formatBytes(1536) === "1.50 KB" && formatBytes(109_986_168) === "105 MB" && formatBytes(1_048_576) === "1.00 MB");
+  check("duration: formatting", formatDuration(0) === "0 s" && formatDuration(0.25) === "250 ms" && formatDuration(12.3456) === "12.35 s" && formatDuration(2547.314) === "42 min 27 s" && formatDuration(3725) === "1 h 02 min");
+  check("iso timestamp", isoTimestamp(1_700_000_000, 5) === "2023-11-14T22:13:20.000000005Z");
   check("tcp flags: names in order", tcpFlagNames(0x12).join(",") === "SYN,ACK" && tcpFlagNames(0x01).join(",") === "FIN" && tcpFlagNames(0).length === 0);
 }
 

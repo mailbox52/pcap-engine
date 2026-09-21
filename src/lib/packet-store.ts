@@ -1,3 +1,4 @@
+import { isoTimestamp } from "./format";
 import type { PacketBatch } from "./messages";
 
 /**
@@ -64,7 +65,6 @@ export class PacketStore {
 
   /** ISO-8601 UTC timestamp with nanoseconds. */
   isoTime(i: number): string {
-    const base = new Date(this.tsSec[i] * 1000).toISOString().slice(0, 19);
-    return `${base}.${String(this.tsNsec[i]).padStart(9, "0")}Z`;
+    return isoTimestamp(this.tsSec[i], this.tsNsec[i]);
   }
 }

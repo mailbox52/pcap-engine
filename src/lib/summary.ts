@@ -46,6 +46,28 @@ export function protocolColor(proto: number): string {
   }
 }
 
+/** Background colour for a protocol's bar (full class names so Tailwind picks them up). */
+export function protocolBarColor(proto: number): string {
+  switch (proto) {
+    case PROTO.TCP:
+      return "bg-sky-400";
+    case PROTO.UDP:
+      return "bg-emerald-400";
+    case PROTO.DNS:
+      return "bg-teal-400";
+    case PROTO.ICMP:
+    case PROTO.ICMPV6:
+      return "bg-amber-400";
+    case PROTO.ARP:
+      return "bg-violet-400";
+    case PROTO.IPV4:
+    case PROTO.IPV6:
+      return "bg-zinc-400";
+    default:
+      return "bg-zinc-600";
+  }
+}
+
 export function formatIPv4(b: Uint8Array, at: number): string {
   return `${b[at]}.${b[at + 1]}.${b[at + 2]}.${b[at + 3]}`;
 }

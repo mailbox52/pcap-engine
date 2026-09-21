@@ -3,7 +3,7 @@
  * tested from Node (see scripts/verify-engine.ts).
  */
 import type { PcapIndex } from "../pkg/pcap_engine";
-import { BATCH_SIZE, MAX_FILE_BYTES, type Emit, type LinkPreview } from "./messages";
+import { BATCH_SIZE, MAX_FILE_BYTES, type CaptureSummary, type Emit, type LinkPreview } from "./messages";
 
 /** The slice of the wasm-bindgen module the worker logic needs. */
 export interface Engine {
@@ -68,6 +68,12 @@ export async function parseFile(engine: Engine, file: File, emit: Emit): Promise
         tsSec, tsNsec, origLen, capLen, offset, linktype, proto, ipVer, srcPort, dstPort, detail, addr,
       ].map((a) => a.buffer) as Transferable[],
     );
+  }
+
+  try {
+    emit({ type: "summary", summary: index.summary() as CaptureSummary });
+  } catch {
+    // The list still works without the summary panel, so do not fail the load.
   }
 
   emit({

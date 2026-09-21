@@ -6,7 +6,7 @@ import type { PacketStore } from "@/lib/packet-store";
 import { addressText, infoText, protocolColor, protocolName } from "@/lib/summary";
 
 const ROW_HEIGHT = 24;
-const COLUMNS = "grid grid-cols-[4.5rem_7rem_minmax(8rem,11rem)_minmax(8rem,11rem)_5.5rem_4.5rem_minmax(14rem,1fr)]";
+const COLUMNS = "grid grid-cols-[5.5rem_7rem_minmax(7.5rem,10rem)_minmax(7.5rem,10rem)_4.75rem_4rem_minmax(12rem,1fr)]";
 
 interface Props {
   store: PacketStore;
@@ -68,7 +68,7 @@ export default function PacketList({ store, count, selected, interactive, onSele
       aria-label="Packets"
       className="h-[28rem] overflow-auto rounded-lg border border-zinc-800 text-xs tabular-nums outline-none focus-visible:border-sky-500/60"
     >
-      <div className="min-w-[62rem]">
+      <div className="min-w-[49rem]">
         <div className={`${COLUMNS} sticky top-0 z-10 bg-zinc-900 text-zinc-400`}>
           <div className="px-3 py-2 font-medium">#</div>
           <div className="px-3 py-2 font-medium">Time (s)</div>
