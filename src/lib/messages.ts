@@ -44,6 +44,16 @@ export interface PacketBatch {
   capLen: Uint32Array;
   offset: Uint32Array;
   linktype: Uint16Array;
+  /** Protocol id (see PROTOCOLS in summary.ts). */
+  proto: Uint8Array;
+  /** 4, 6, or 0 when the packet has no addresses. */
+  ipVer: Uint8Array;
+  srcPort: Uint16Array;
+  dstPort: Uint16Array;
+  /** TCP flags, ICMP type/code, ARP operation, IP protocol, or EtherType, depending on proto. */
+  detail: Uint16Array;
+  /** 32 bytes per packet: 16-byte source address then 16-byte destination. */
+  addr: Uint8Array;
 }
 
 export type WorkerOut =

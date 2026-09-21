@@ -9,6 +9,7 @@ import { BATCH_SIZE, MAX_FILE_BYTES, type WorkerOut } from "../src/lib/messages"
 import { dissectPacket, parseFile } from "../src/lib/parse-file";
 import { PacketStore } from "../src/lib/packet-store";
 import { etherTypeName, hexLines, ipProtocolName, linkTypeName } from "../src/lib/format";
+import { addressText, formatIPv6, infoText, protocolName, tcpFlagNames } from "../src/lib/summary";
 
 initSync({ module: readFileSync(new URL("../src/pkg/pcap_engine_bg.wasm", import.meta.url)) });
 const engine = { parse_pcap_bytes, link_preview };
@@ -97,6 +98,12 @@ async function run(file: File) {
     first?.type === "batch" && first.tsSec[0] === 1_700_000_000 && first.tsNsec[0] === 500_000_000 &&
       first.origLen[0] === first.capLen[0] && first.linktype[0] === 1 && first.offset[0] === 24 + 16,
   );
+  check(
+    "pcap: protocol columns (TCP over IPv4, addresses, ports from the fixture bytes)",
+    first?.type === "batch" && first.proto[0] === 1 && first.ipVer[0] === 4 &&
+      first.srcPort[0] === 0x7061 && first.dstPort[0] === 0x636b && first.detail[0] === 0 &&
+      first.addr.slice(0, 4).join(".") === "10.0.0.1" && first.addr.slice(16, 20).join(".") === "10.0.0.2",
+  );
   check("pcap: done is complete", done?.type === "done" && done.complete && done.total === N);
 
   if (index) {
@@ -172,7 +179,7 @@ async function run(file: File) {
   );
   check("store: relative time is exact", store.relativeSeconds(0) === 0 && store.relativeSeconds(10) === 10);
   check("store: ISO timestamp with nanoseconds", store.isoTime(0) === "2023-11-14T22:13:20.500000000Z", store.isoTime(0));
-  store.add({ type: "batch", start: N, tsSec: new Uint32Array(5), tsNsec: new Uint32Array(5), origLen: new Uint32Array(5), capLen: new Uint32Array(5), offset: new Uint32Array(5), linktype: new Uint16Array(5) });
+  store.add({ type: "batch", start: N, tsSec: new Uint32Array(5), tsNsec: new Uint32Array(5), origLen: new Uint32Array(5), capLen: new Uint32Array(5), offset: new Uint32Array(5), linktype: new Uint16Array(5), proto: new Uint8Array(5), ipVer: new Uint8Array(5), srcPort: new Uint16Array(5), dstPort: new Uint16Array(5), detail: new Uint16Array(5), addr: new Uint8Array(160) });
   check("store: ignores batches outside the announced total", store.count === N);
   index?.free();
 
@@ -200,6 +207,64 @@ async function run(file: File) {
     "link_preview: missing optional fields are undefined (UI must use != null)",
     p.vlan_id === undefined && p.ethertype === 0x0800 && typeof p.dst_mac === "string",
   );
+}
+
+// ---- 8. protocol capture through Wasm, store, and summary text ----
+{
+  const u16be = (v: number) => Buffer.from([v >> 8, v & 0xff]);
+  const eth = (type: number, payload: Buffer) =>
+    Buffer.concat([Buffer.from([0xaa, 0xbb, 0xcc, 0, 0, 1, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66]), u16be(type), payload]);
+  const ip4 = (proto: number, src: number[], dst: number[], l4: Buffer) =>
+    Buffer.concat([Buffer.from([0x45, 0]), u16be(20 + l4.length), Buffer.from([0, 0, 0, 0, 64, proto, 0, 0, ...src, ...dst]), l4]);
+  const tcp = (sp: number, dp: number, flags: number) =>
+    Buffer.concat([u16be(sp), u16be(dp), Buffer.alloc(8), Buffer.from([0x50, flags]), Buffer.alloc(6)]);
+  const udp = (sp: number, dp: number) => Buffer.concat([u16be(sp), u16be(dp), Buffer.from([0, 8, 0, 0])]);
+  const v6a = (last: number) => [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, last];
+  const ip6 = (next: number, src: number[], dst: number[], rest: Buffer) =>
+    Buffer.concat([Buffer.from([0x60, 0, 0, 0]), u16be(rest.length), Buffer.from([next, 64, ...src, ...dst]), rest]);
+  const arp = Buffer.concat([Buffer.from([0, 1, 8, 0, 6, 4, 0, 1, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 10, 0, 0, 1]), Buffer.alloc(6), Buffer.from([10, 0, 0, 9])]);
+
+  const packets = [
+    eth(0x0800, ip4(6, [10, 0, 0, 1], [10, 0, 0, 2], tcp(443, 51234, 0x12))),
+    eth(0x0800, ip4(17, [10, 0, 0, 2], [10, 0, 0, 3], udp(40000, 53))),
+    eth(0x0800, ip4(1, [10, 0, 0, 3], [10, 0, 0, 4], Buffer.from([8, 0, 0, 0, 0, 1, 0, 1]))),
+    eth(0x0806, arp),
+    eth(0x86dd, ip6(6, v6a(1), v6a(2), tcp(22, 60000, 0x02))),
+    eth(0x88cc, Buffer.alloc(30)),
+  ];
+  const parts: Buffer[] = [u32(0xa1b2c3d4), u16(2), u16(4), u32(0), u32(0), u32(65535), u32(1)];
+  packets.forEach((d, i) => parts.push(u32(100 + i), u32(0), u32(d.length), u32(d.length), d));
+
+  const { msgs, index } = await run(toFile(Buffer.concat(parts), "protocols.pcap"));
+  const store = new PacketStore();
+  for (const m of msgs) {
+    if (m.type === "started") store.reset(m.total);
+    else if (m.type === "batch") store.add(m);
+  }
+  const names = [0, 1, 2, 3, 4, 5].map((i) => protocolName(store.proto[i]));
+  check("protocols: names", names.join(",") === "TCP,DNS,ICMP,ARP,TCP,Other", names.join(","));
+  check("protocols: IPv4 addresses", addressText(store, 0, "src") === "10.0.0.1" && addressText(store, 0, "dst") === "10.0.0.2");
+  check("protocols: IPv6 addresses", addressText(store, 4, "src") === "2001:db8::1" && addressText(store, 4, "dst") === "2001:db8::2");
+  check("protocols: no addresses for non-IP", addressText(store, 5, "src") === "");
+  check("info: TCP with flags", infoText(store, 0) === "443 → 51234 [SYN, ACK]", infoText(store, 0));
+  check("info: DNS", infoText(store, 1) === "40000 → 53", infoText(store, 1));
+  check("info: ICMP echo request", infoText(store, 2) === "Echo request", infoText(store, 2));
+  check("info: ARP request", infoText(store, 3) === "Who has 10.0.0.9? Tell 10.0.0.1", infoText(store, 3));
+  check("info: IPv6 TCP", infoText(store, 4) === "22 → 60000 [SYN]", infoText(store, 4));
+  check("info: unknown EtherType", infoText(store, 5) === "EtherType 0x88cc (LLDP)", infoText(store, 5));
+  index?.free();
+}
+
+// ---- 9. text helpers that need no Wasm ----
+{
+  const v6 = (...g: number[]) => Uint8Array.from(g.flatMap((x) => [x >> 8, x & 0xff]));
+  check("ipv6: zero run compressed", formatIPv6(v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 0) === "2001:db8::1");
+  check("ipv6: all zeros", formatIPv6(v6(0, 0, 0, 0, 0, 0, 0, 0), 0) === "::");
+  check("ipv6: loopback", formatIPv6(v6(0, 0, 0, 0, 0, 0, 0, 1), 0) === "::1");
+  check("ipv6: single zero group not compressed", formatIPv6(v6(1, 0, 2, 3, 4, 5, 6, 7), 0) === "1:0:2:3:4:5:6:7");
+  check("ipv6: longest run wins", formatIPv6(v6(1, 0, 0, 2, 0, 0, 0, 3), 0) === "1:0:0:2::3");
+  check("ipv6: trailing zeros", formatIPv6(v6(0xfe80, 0, 0, 0, 0, 0, 0, 0), 0) === "fe80::");
+  check("tcp flags: names in order", tcpFlagNames(0x12).join(",") === "SYN,ACK" && tcpFlagNames(0x01).join(",") === "FIN" && tcpFlagNames(0).length === 0);
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

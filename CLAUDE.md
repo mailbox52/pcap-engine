@@ -41,7 +41,9 @@ pcap-engine/
 - **Phase 3 is written.** `src/lib/packet-store.ts` keeps the columns on the main thread in preallocated typed arrays (about 22 bytes per packet, filled as batches arrive). `PacketList.tsx` is the virtualized list, `PacketDetail.tsx` the detail panel (timestamp, lengths, MACs, EtherType/VLAN, IPv4 fields, hex dump of the first 32 bytes). Rows are clickable only after loading finishes. Dissect errors carry `scope: "dissect"` so they only affect the detail panel.
 - **Checked so far:** typecheck, build, `npm run verify` (now includes the store, formatting helpers, and size cap), the detail panel rendered on the server, and a synthetic 1,000,000-packet, 110 MB capture parsed through the real Wasm in about 250 ms into 100 batches. **Not yet checked:** scrolling that capture in a browser.
 - **Known limit:** rows are 24 px, so 1M packets make a 24M px scroll area. Chrome allows about 33M px, Firefox about 17.9M px (roughly 745k rows). Beyond that in Firefox the list needs a windowing workaround.
-- **Next:** try `npm run make-capture` and scroll the big file in a browser; then Phase 4 (readable rows with protocol and addresses, summary panel, filters, bundled sample, privacy note).
+- **Phase 3 confirmed in a real browser**, including a 1,000,000-packet capture (a browser freeze seen once in dev mode on the developer's laptop did not recur and was put down to the machine; 200k packets was always smooth).
+- **Phase 4a is written** (see Phase 4). Order of work: push, wait for the GitHub Actions run to rebuild `src/pkg` (it also runs the new Rust tests and clippy on the wasm32 target, which were only run natively when the code was written), `git pull`, then `npm run verify` (now 41 checks; the protocol ones only pass against the rebuilt Wasm) and `npm run dev`. The main-thread store is now about 60 bytes per packet (about 60 MB per million).
+- **Next:** confirm 4a in a browser; then 4b summary panel, 4c filters, 4d bundled sample, 4e privacy note (already on the page).
 
 ## Design Decisions (v1)
 - **Whole-file parse, size-capped.** The worker reads the file into memory, copies it into Wasm, and parses. Cap at **256 MB** with a clear error above that. Streaming / chunked parsing is a v2 feature.
@@ -57,8 +59,10 @@ type WorkerIn =
   | { type: 'dissect'; index: number };   // worker slices that packet from the File it kept
 
 type WorkerOut =
-  | { type: 'batch'; tsSec: Uint32Array; tsNsec: Uint32Array; origLen: Uint32Array;
-      capLen: Uint32Array; offset: Uint32Array; linktype: Uint16Array }  // transferred, not cloned
+  | { type: 'batch'; start: number; tsSec: Uint32Array; tsNsec: Uint32Array; origLen: Uint32Array;
+      capLen: Uint32Array; offset: Uint32Array; linktype: Uint16Array;
+      proto: Uint8Array; ipVer: Uint8Array; srcPort: Uint16Array; dstPort: Uint16Array;
+      detail: Uint16Array; addr: Uint8Array }  // transferred, not cloned; shape in src/lib/messages.ts
   | { type: 'done'; total: number }
   | { type: 'packet'; index: number; preview: LinkPreview }  // shape: pcap-engine/src/link.rs
   | { type: 'error'; message: string };
@@ -94,11 +98,11 @@ type WorkerOut =
 ### Phase 4: Make It Useful (v1.5)
 Build after Phases 1-3 work end to end. Each item is independent, so ship them in this order.
 
-**4a. Readable rows (protocol, addresses, ports)**
-- [ ] Rust parses Ethernet, IPv4/IPv6, TCP, UDP, ICMP, and ARP headers.
-- [ ] Each list row shows time, source, destination, protocol label, length, and a short info string (e.g. `443 → 51234 [SYN, ACK]`).
-- [ ] Batch output gains columns: `src`, `dst` (IP as u32 pair, or 16-byte slots for IPv6), `srcPort`, `dstPort`, `proto`. Still typed arrays, no per-packet objects.
-- [ ] Unknown or unsupported protocols show as "Other" and never break parsing.
+**4a. Readable rows (protocol, addresses, ports)** (written; needs the CI Wasm build and a browser check)
+- [x] Rust parses Ethernet (with VLAN), Linux cooked, raw IP and loopback framing, then IPv4/IPv6 (including extension headers), TCP, UDP, ICMP, ICMPv6, ARP, and DNS by port. `pcap-engine/src/dissect.rs`, 14 unit tests plus prefix-truncation fuzzing.
+- [ ] Each list row shows time, source, destination, protocol label, length, and a short info string (e.g. `443 → 51234 [SYN, ACK]`). Written; not yet seen in a browser.
+- [x] Batch output gains typed-array columns: `proto`, `ipVer`, `srcPort`, `dstPort`, `detail` (TCP flags / ICMP type+code / ARP op / IP protocol / EtherType), and `addr` (32 bytes per packet: 16-byte source then 16-byte destination; IPv4 uses the first 4 bytes). No per-packet objects.
+- [x] Unknown or unsupported protocols show as "Other" and never break parsing.
 
 **4b. Summary panel**
 - [ ] After loading: total packets, total bytes, capture duration, average packet size.

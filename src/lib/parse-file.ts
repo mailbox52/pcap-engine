@@ -56,9 +56,17 @@ export async function parseFile(engine: Engine, file: File, emit: Emit): Promise
     const capLen = index.cap_len(start, end);
     const offset = index.offset(start, end);
     const linktype = index.linktype(start, end);
+    const proto = index.proto(start, end);
+    const ipVer = index.ip_version(start, end);
+    const srcPort = index.src_port(start, end);
+    const dstPort = index.dst_port(start, end);
+    const detail = index.detail(start, end);
+    const addr = index.addr(start, end);
     emit(
-      { type: "batch", start, tsSec, tsNsec, origLen, capLen, offset, linktype },
-      [tsSec.buffer, tsNsec.buffer, origLen.buffer, capLen.buffer, offset.buffer, linktype.buffer] as Transferable[],
+      { type: "batch", start, tsSec, tsNsec, origLen, capLen, offset, linktype, proto, ipVer, srcPort, dstPort, detail, addr },
+      [
+        tsSec, tsNsec, origLen, capLen, offset, linktype, proto, ipVer, srcPort, dstPort, detail, addr,
+      ].map((a) => a.buffer) as Transferable[],
     );
   }
 

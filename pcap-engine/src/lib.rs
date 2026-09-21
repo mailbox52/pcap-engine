@@ -4,6 +4,7 @@
 //! only the thin wasm-bindgen layer over them.
 
 pub mod core;
+pub mod dissect;
 pub mod link;
 
 use wasm_bindgen::prelude::*;
@@ -66,6 +67,35 @@ impl PcapIndex {
 
     pub fn linktype(&self, start: u32, end: u32) -> Vec<u16> {
         self.inner.linktype[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// Protocol id per packet (see `dissect::PROTO_*`).
+    pub fn proto(&self, start: u32, end: u32) -> Vec<u8> {
+        self.inner.proto[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// 4, 6, or 0 per packet.
+    pub fn ip_version(&self, start: u32, end: u32) -> Vec<u8> {
+        self.inner.ip_version[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    pub fn src_port(&self, start: u32, end: u32) -> Vec<u16> {
+        self.inner.src_port[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    pub fn dst_port(&self, start: u32, end: u32) -> Vec<u16> {
+        self.inner.dst_port[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// Protocol-specific value per packet (TCP flags, ICMP type/code, ARP op, ...).
+    pub fn detail(&self, start: u32, end: u32) -> Vec<u16> {
+        self.inner.detail[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// 32 bytes per packet: 16-byte source address then 16-byte destination.
+    pub fn addr(&self, start: u32, end: u32) -> Vec<u8> {
+        let r = range(self.inner.len(), start, end);
+        self.inner.addr[r.start * 32..r.end * 32].to_vec()
     }
 }
 

@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use pcap_engine::core::{parse_capture, Format, ParseError};
+use pcap_engine::dissect::{PROTO_ARP, PROTO_DNS, PROTO_TCP};
 
 const RES_MICRO: u32 = 1_700_000_000;
 
@@ -287,15 +288,12 @@ fn every_truncation_point_is_handled_without_panic() {
     );
     for file in [&ng, &legacy] {
         for cut in 0..=file.len() {
-            match parse_capture(&file[..cut]) {
-                Ok(idx) => {
-                    // Whatever was parsed must point at real bytes in the input.
-                    for i in 0..idx.len() {
-                        let end = idx.offset[i] as usize + idx.cap_len[i] as usize;
-                        assert!(end <= cut, "packet {i} extends past truncated input");
-                    }
+            if let Ok(idx) = parse_capture(&file[..cut]) {
+                // Whatever was parsed must point at real bytes in the input.
+                for i in 0..idx.len() {
+                    let end = idx.offset[i] as usize + idx.cap_len[i] as usize;
+                    assert!(end <= cut, "packet {i} extends past truncated input");
                 }
-                Err(_) => {}
             }
         }
     }
@@ -322,5 +320,55 @@ fn corrupted_bytes_never_panic() {
                 }
             }
         }
+    }
+}
+
+// ---------- protocol summary columns ----------
+
+#[test]
+fn index_carries_protocol_columns_for_both_formats() {
+    let syn = eth_frame(
+        0x0800,
+        &ipv4_packet(6, [10, 0, 0, 1], [10, 0, 0, 2], 0, &tcp_segment(443, 51234, 0x12)),
+    );
+    let dns = eth_frame(
+        0x0800,
+        &ipv4_packet(17, [10, 0, 0, 2], [10, 0, 0, 3], 0, &udp_datagram(40000, 53)),
+    );
+    let arp = eth_frame(0x0806, &arp_packet(1, [10, 0, 0, 1], [10, 0, 0, 9]));
+
+    let legacy = pcap_file(
+        Endian::LE,
+        false,
+        1,
+        &[
+            Pkt { ts_sec: 1, ts_frac: 0, orig_len: syn.len() as u32, data: &syn },
+            Pkt { ts_sec: 2, ts_frac: 0, orig_len: dns.len() as u32, data: &dns },
+            Pkt { ts_sec: 3, ts_frac: 0, orig_len: arp.len() as u32, data: &arp },
+        ],
+    );
+    let e = Endian::BE;
+    let ng = concat(&[
+        shb(e),
+        idb(e, 1, None),
+        epb(e, 0, 1_000_000, syn.len() as u32, &syn),
+        epb(e, 0, 2_000_000, dns.len() as u32, &dns),
+        epb(e, 0, 3_000_000, arp.len() as u32, &arp),
+    ]);
+
+    for file in [&legacy, &ng] {
+        let idx = parse_capture(file).unwrap();
+        assert_eq!(idx.len(), 3);
+        assert_eq!(idx.proto, vec![PROTO_TCP, PROTO_DNS, PROTO_ARP]);
+        assert_eq!(idx.ip_version, vec![4, 4, 4]);
+        assert_eq!(idx.src_port, vec![443, 40000, 0]);
+        assert_eq!(idx.dst_port, vec![51234, 53, 0]);
+        assert_eq!(idx.detail, vec![0x12, 0, 1]);
+        // 32 bytes per packet: source (16) then destination (16).
+        assert_eq!(idx.addr.len(), 3 * 32);
+        assert_eq!(&idx.addr[0..4], &[10, 0, 0, 1]);
+        assert_eq!(&idx.addr[16..20], &[10, 0, 0, 2]);
+        assert_eq!(&idx.addr[32..36], &[10, 0, 0, 2]);
+        assert_eq!(&idx.addr[64 + 16..64 + 20], &[10, 0, 0, 9]);
     }
 }

@@ -2,7 +2,7 @@ import type { PacketBatch } from "./messages";
 
 /**
  * Main-thread copy of the per-packet columns the list needs, kept in a few
- * preallocated typed arrays (about 22 bytes per packet) rather than one JS
+ * preallocated typed arrays (about 60 bytes per packet) rather than one JS
  * object per packet, so a million-packet capture stays small.
  *
  * Deliberately not React state: it is mutated in place as batches arrive, and
@@ -16,6 +16,13 @@ export class PacketStore {
   origLen = new Uint32Array(0);
   capLen = new Uint32Array(0);
   linktype = new Uint16Array(0);
+  proto = new Uint8Array(0);
+  ipVer = new Uint8Array(0);
+  srcPort = new Uint16Array(0);
+  dstPort = new Uint16Array(0);
+  detail = new Uint16Array(0);
+  /** 32 bytes per packet: 16-byte source address, then 16-byte destination. */
+  addr = new Uint8Array(0);
 
   reset(total: number) {
     this.count = 0;
@@ -25,6 +32,12 @@ export class PacketStore {
     this.origLen = new Uint32Array(total);
     this.capLen = new Uint32Array(total);
     this.linktype = new Uint16Array(total);
+    this.proto = new Uint8Array(total);
+    this.ipVer = new Uint8Array(total);
+    this.srcPort = new Uint16Array(total);
+    this.dstPort = new Uint16Array(total);
+    this.detail = new Uint16Array(total);
+    this.addr = new Uint8Array(total * 32);
   }
 
   add(b: PacketBatch) {
@@ -35,6 +48,12 @@ export class PacketStore {
     this.origLen.set(b.origLen, b.start);
     this.capLen.set(b.capLen, b.start);
     this.linktype.set(b.linktype, b.start);
+    this.proto.set(b.proto, b.start);
+    this.ipVer.set(b.ipVer, b.start);
+    this.srcPort.set(b.srcPort, b.start);
+    this.dstPort.set(b.dstPort, b.start);
+    this.detail.set(b.detail, b.start);
+    this.addr.set(b.addr, b.start * 32);
     this.count = Math.max(this.count, end);
   }
 

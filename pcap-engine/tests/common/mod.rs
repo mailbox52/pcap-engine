@@ -68,7 +68,7 @@ pub fn pcap_file(e: Endian, nano: bool, linktype: u32, pkts: &[Pkt]) -> Vec<u8> 
 }
 
 fn pad4(out: &mut Vec<u8>) {
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
@@ -124,4 +124,66 @@ pub fn epb(e: Endian, if_id: u32, ticks: u64, orig_len: u32, data: &[u8]) -> Vec
 
 pub fn concat(parts: &[Vec<u8>]) -> Vec<u8> {
     parts.iter().flatten().copied().collect()
+}
+
+// ---- protocol packet builders (for dissect tests) ----
+
+pub fn eth_frame(ethertype: u16, payload: &[u8]) -> Vec<u8> {
+    let mut p = vec![0xaa, 0xbb, 0xcc, 0, 0, 1, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+    p.extend_from_slice(&ethertype.to_be_bytes());
+    p.extend_from_slice(payload);
+    p
+}
+
+/// IPv4 header (no options) + `l4`. `frag` is the flags+fragment-offset field.
+pub fn ipv4_packet(proto: u8, src: [u8; 4], dst: [u8; 4], frag: u16, l4: &[u8]) -> Vec<u8> {
+    let total = (20 + l4.len()) as u16;
+    let mut p = vec![0x45, 0];
+    p.extend_from_slice(&total.to_be_bytes());
+    p.extend_from_slice(&[0, 0]);
+    p.extend_from_slice(&frag.to_be_bytes());
+    p.extend_from_slice(&[64, proto, 0, 0]);
+    p.extend_from_slice(&src);
+    p.extend_from_slice(&dst);
+    p.extend_from_slice(l4);
+    p
+}
+
+pub fn ipv6_packet(next: u8, src: [u8; 16], dst: [u8; 16], rest: &[u8]) -> Vec<u8> {
+    let mut p = vec![0x60, 0, 0, 0];
+    p.extend_from_slice(&(rest.len() as u16).to_be_bytes());
+    p.extend_from_slice(&[next, 64]);
+    p.extend_from_slice(&src);
+    p.extend_from_slice(&dst);
+    p.extend_from_slice(rest);
+    p
+}
+
+pub fn tcp_segment(src_port: u16, dst_port: u16, flags: u8) -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend_from_slice(&src_port.to_be_bytes());
+    t.extend_from_slice(&dst_port.to_be_bytes());
+    t.extend_from_slice(&[0; 8]); // seq + ack
+    t.push(0x50); // data offset 5
+    t.push(flags);
+    t.extend_from_slice(&[0; 6]); // window, checksum, urgent
+    t
+}
+
+pub fn udp_datagram(src_port: u16, dst_port: u16) -> Vec<u8> {
+    let mut u = Vec::new();
+    u.extend_from_slice(&src_port.to_be_bytes());
+    u.extend_from_slice(&dst_port.to_be_bytes());
+    u.extend_from_slice(&[0, 8, 0, 0]);
+    u
+}
+
+pub fn arp_packet(op: u16, spa: [u8; 4], tpa: [u8; 4]) -> Vec<u8> {
+    let mut a = vec![0, 1, 0x08, 0x00, 6, 4];
+    a.extend_from_slice(&op.to_be_bytes());
+    a.extend_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+    a.extend_from_slice(&spa);
+    a.extend_from_slice(&[0; 6]);
+    a.extend_from_slice(&tpa);
+    a
 }

@@ -1,6 +1,7 @@
 //! Pure-Rust capture indexing. No wasm or JS types in here, so it is
 //! testable with plain `cargo test`.
 
+use crate::dissect::{dissect, Meta};
 use pcap_parser::pcapng::{Block, InterfaceDescriptionBlock};
 use pcap_parser::{
     parse_pcap_frame, parse_pcap_frame_be, LegacyPcapSlice, PcapBlockOwned, PcapNGSlice,
@@ -57,6 +58,16 @@ pub struct PacketIndex {
     pub offset: Vec<u32>,
     /// pcap LINKTYPE_* value for the packet's interface.
     pub linktype: Vec<u16>,
+    /// `dissect::PROTO_*` value.
+    pub proto: Vec<u8>,
+    /// 4, 6, or 0 (no addresses).
+    pub ip_version: Vec<u8>,
+    pub src_port: Vec<u16>,
+    pub dst_port: Vec<u16>,
+    /// Protocol-specific value; see `dissect::Meta::detail`.
+    pub detail: Vec<u16>,
+    /// 32 bytes per packet: 16-byte source address then 16-byte destination.
+    pub addr: Vec<u8>,
     /// False if parsing stopped early (truncated or corrupt file). Packets
     /// parsed before the problem are still present.
     pub complete: bool,
@@ -73,6 +84,12 @@ impl PacketIndex {
             cap_len: Vec::with_capacity(capacity),
             offset: Vec::with_capacity(capacity),
             linktype: Vec::with_capacity(capacity),
+            proto: Vec::with_capacity(capacity),
+            ip_version: Vec::with_capacity(capacity),
+            src_port: Vec::with_capacity(capacity),
+            dst_port: Vec::with_capacity(capacity),
+            detail: Vec::with_capacity(capacity),
+            addr: Vec::with_capacity(capacity * 32),
             complete: true,
             issues: Vec::new(),
         }
@@ -107,6 +124,7 @@ impl PacketIndex {
         orig_len: u32,
         cap_len: u32,
         linktype: u16,
+        packet: &[u8],
     ) -> bool {
         let Ok(offset) = u32::try_from(data_offset) else {
             self.stop("Capture is larger than 4 GiB; packets past this point were skipped");
@@ -118,6 +136,14 @@ impl PacketIndex {
         self.cap_len.push(cap_len);
         self.offset.push(offset);
         self.linktype.push(linktype);
+        let meta: Meta = dissect(packet, linktype);
+        self.proto.push(meta.proto);
+        self.ip_version.push(meta.ip_version);
+        self.src_port.push(meta.src_port);
+        self.dst_port.push(meta.dst_port);
+        self.detail.push(meta.detail);
+        self.addr.extend_from_slice(&meta.src);
+        self.addr.extend_from_slice(&meta.dst);
         true
     }
 }
@@ -182,7 +208,14 @@ fn parse_legacy(data: &[u8], slice: LegacyPcapSlice<'_>) -> PacketIndex {
         } else {
             block.ts_usec.saturating_mul(1000).min(999_999_999)
         };
-        if !idx.push(offset, (block.ts_sec, nsec), block.origlen, block.caplen, linktype) {
+        if !idx.push(
+            offset,
+            (block.ts_sec, nsec),
+            block.origlen,
+            block.caplen,
+            linktype,
+            block.data,
+        ) {
             break;
         }
     }
@@ -265,7 +298,14 @@ fn parse_pcapng(data: &[u8], slice: PcapNGSlice<'_>) -> PacketIndex {
                     idx.stop("Internal error locating packet data");
                     break;
                 };
-                if !idx.push(offset, ts, epb.origlen, cap, iface.linktype) {
+                if !idx.push(
+                    offset,
+                    ts,
+                    epb.origlen,
+                    cap,
+                    iface.linktype,
+                    epb.data.get(..cap as usize).unwrap_or(epb.data),
+                ) {
                     break;
                 }
             }
@@ -277,7 +317,14 @@ fn parse_pcapng(data: &[u8], slice: PcapNGSlice<'_>) -> PacketIndex {
                     idx.stop("Internal error locating packet data");
                     break;
                 };
-                if !idx.push(offset, (0, 0), spb.origlen, cap, linktype) {
+                if !idx.push(
+                    offset,
+                    (0, 0),
+                    spb.origlen,
+                    cap,
+                    linktype,
+                    spb.data.get(..cap as usize).unwrap_or(spb.data),
+                ) {
                     break;
                 }
             }

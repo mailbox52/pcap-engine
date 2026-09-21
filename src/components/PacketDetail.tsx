@@ -1,6 +1,7 @@
 import type { LinkPreview } from "@/lib/messages";
 import type { PacketStore } from "@/lib/packet-store";
 import { etherTypeName, hexLines, ipProtocolName, linkTypeName } from "@/lib/format";
+import { addressText, infoText, PROTO, protocolName, tcpFlagNames } from "@/lib/summary";
 
 interface Props {
   store: PacketStore;
@@ -21,6 +22,10 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export default function PacketDetail({ store, index, preview, error }: Props) {
   const orig = store.origLen[index];
   const cap = store.capLen[index];
+  const proto = store.proto[index];
+  const src = addressText(store, index, "src");
+  const dst = addressText(store, index, "dst");
+  const hasPorts = proto === PROTO.TCP || proto === PROTO.UDP || proto === PROTO.DNS;
 
   return (
     <aside className="rounded-lg border border-zinc-800 p-4 text-xs">
@@ -30,6 +35,13 @@ export default function PacketDetail({ store, index, preview, error }: Props) {
         <Field label="Timestamp (UTC)" value={<span className="tabular-nums">{store.isoTime(index)}</span>} />
         <Field label="Length" value={`${orig} bytes${cap < orig ? ` (${cap} captured)` : ""}`} />
         <Field label="Link type" value={linkTypeName(store.linktype[index])} />
+        <Field label="Protocol" value={protocolName(proto)} />
+        {src && <Field label="Source" value={<code>{src}{hasPorts ? `:${store.srcPort[index]}` : ""}</code>} />}
+        {dst && <Field label="Destination" value={<code>{dst}{hasPorts ? `:${store.dstPort[index]}` : ""}</code>} />}
+        {proto === PROTO.TCP && (
+          <Field label="TCP flags" value={tcpFlagNames(store.detail[index]).join(", ") || "none"} />
+        )}
+        <Field label="Info" value={infoText(store, index)} />
       </dl>
 
       {error && <p className="mt-3 text-red-300">{error}</p>}

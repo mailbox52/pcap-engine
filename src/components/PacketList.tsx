@@ -3,10 +3,10 @@
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { PacketStore } from "@/lib/packet-store";
-import { linkTypeName } from "@/lib/format";
+import { addressText, infoText, protocolColor, protocolName } from "@/lib/summary";
 
 const ROW_HEIGHT = 24;
-const COLUMNS = "grid grid-cols-[5.5rem_8rem_6rem_6rem_1fr]";
+const COLUMNS = "grid grid-cols-[4.5rem_7rem_minmax(8rem,11rem)_minmax(8rem,11rem)_5.5rem_4.5rem_minmax(14rem,1fr)]";
 
 interface Props {
   store: PacketStore;
@@ -68,38 +68,47 @@ export default function PacketList({ store, count, selected, interactive, onSele
       aria-label="Packets"
       className="h-[28rem] overflow-auto rounded-lg border border-zinc-800 text-xs tabular-nums outline-none focus-visible:border-sky-500/60"
     >
-      <div className={`${COLUMNS} sticky top-0 z-10 bg-zinc-900 text-zinc-400`}>
-        <div className="px-3 py-2 font-medium">#</div>
-        <div className="px-3 py-2 font-medium">Time (s)</div>
-        <div className="px-3 py-2 font-medium">Original</div>
-        <div className="px-3 py-2 font-medium">Captured</div>
-        <div className="px-3 py-2 font-medium">Link type</div>
-      </div>
+      <div className="min-w-[62rem]">
+        <div className={`${COLUMNS} sticky top-0 z-10 bg-zinc-900 text-zinc-400`}>
+          <div className="px-3 py-2 font-medium">#</div>
+          <div className="px-3 py-2 font-medium">Time (s)</div>
+          <div className="px-3 py-2 font-medium">Source</div>
+          <div className="px-3 py-2 font-medium">Destination</div>
+          <div className="px-3 py-2 font-medium">Protocol</div>
+          <div className="px-3 py-2 font-medium">Length</div>
+          <div className="px-3 py-2 font-medium">Info</div>
+        </div>
 
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-        {virtualizer.getVirtualItems().map((v) => {
-          const i = v.index;
-          const isSelected = i === selected;
-          return (
-            <div
-              key={v.key}
-              role="row"
-              aria-rowindex={i + 1}
-              aria-selected={isSelected}
-              onClick={interactive ? () => onSelect(i) : undefined}
-              className={`${COLUMNS} absolute left-0 top-0 w-full items-center border-t border-zinc-800/70 ${
-                isSelected ? "bg-sky-500/20" : interactive ? "cursor-pointer hover:bg-zinc-800/60" : ""
-              }`}
-              style={{ height: v.size, transform: `translateY(${v.start}px)` }}
-            >
-              <div className="px-3 text-zinc-500">{(i + 1).toLocaleString()}</div>
-              <div className="px-3">{store.relativeSeconds(i).toFixed(6)}</div>
-              <div className="px-3">{store.origLen[i]}</div>
-              <div className="px-3">{store.capLen[i]}</div>
-              <div className="px-3">{linkTypeName(store.linktype[i])}</div>
-            </div>
-          );
-        })}
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          {virtualizer.getVirtualItems().map((v) => {
+            const i = v.index;
+            const isSelected = i === selected;
+            const src = addressText(store, i, "src");
+            const dst = addressText(store, i, "dst");
+            const info = infoText(store, i);
+            return (
+              <div
+                key={v.key}
+                role="row"
+                aria-rowindex={i + 1}
+                aria-selected={isSelected}
+                onClick={interactive ? () => onSelect(i) : undefined}
+                className={`${COLUMNS} absolute left-0 top-0 w-full items-center border-t border-zinc-800/70 ${
+                  isSelected ? "bg-sky-500/20" : interactive ? "cursor-pointer hover:bg-zinc-800/60" : ""
+                }`}
+                style={{ height: v.size, transform: `translateY(${v.start}px)` }}
+              >
+                <div className="px-3 text-zinc-500">{(i + 1).toLocaleString()}</div>
+                <div className="px-3">{store.relativeSeconds(i).toFixed(6)}</div>
+                <div className="truncate px-3" title={src}>{src}</div>
+                <div className="truncate px-3" title={dst}>{dst}</div>
+                <div className={`px-3 ${protocolColor(store.proto[i])}`}>{protocolName(store.proto[i])}</div>
+                <div className="px-3">{store.origLen[i]}</div>
+                <div className="truncate px-3 text-zinc-300" title={info}>{info}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
