@@ -50,7 +50,8 @@ export type Stage = "reading" | "parsing" | "sending";
 
 export type WorkerIn =
   | { type: "parse"; file: File }
-  | { type: "dissect"; index: number };
+  | { type: "dissect"; index: number }
+  | { type: "filter"; query: string; requestId: number };
 
 export interface PacketBatch {
   type: "batch";
@@ -80,6 +81,12 @@ export type WorkerOut =
   | PacketBatch
   | { type: "summary"; summary: CaptureSummary }
   | {
+      type: "filtered";
+      requestId: number;
+      /** Indexes of the matching packets, in order. Transferred, not cloned. */
+      indexes: Uint32Array;
+    }
+  | {
       type: "done";
       total: number;
       format: string;
@@ -92,8 +99,12 @@ export type WorkerOut =
   | {
       type: "error";
       message: string;
-      /** "dissect" errors only affect the detail panel; anything else ends the parse. */
-      scope?: "parse" | "dissect";
+      /** "dissect" and "filter" errors only affect that feature; anything else ends the parse. */
+      scope?: "parse" | "dissect" | "filter";
+      /** Present for "filter" errors: where in the query text the problem starts. */
+      position?: number;
+      /** Echoes the filter request this error answers, so a stale reply can be ignored. */
+      requestId?: number;
     };
 
 export type Emit = (msg: WorkerOut, transfer?: Transferable[]) => void;

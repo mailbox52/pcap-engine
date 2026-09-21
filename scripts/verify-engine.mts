@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { initSync, link_preview, parse_pcap_bytes } from "../src/pkg/pcap_engine.js";
 import { BATCH_SIZE, MAX_FILE_BYTES, type WorkerOut } from "../src/lib/messages";
-import { dissectPacket, parseFile } from "../src/lib/parse-file";
+import { dissectPacket, parseFile, runFilter } from "../src/lib/parse-file";
 import { PacketStore } from "../src/lib/packet-store";
 import { etherTypeName, formatBytes, formatDuration, hexLines, ipProtocolName, isoTimestamp, linkTypeName } from "../src/lib/format";
 import { addressText, formatIPv6, infoText, protocolName, tcpFlagNames } from "../src/lib/summary";
@@ -292,6 +292,78 @@ async function run(file: File) {
   check("duration: formatting", formatDuration(0) === "0 s" && formatDuration(0.25) === "250 ms" && formatDuration(12.3456) === "12.35 s" && formatDuration(2547.314) === "42 min 27 s" && formatDuration(3725) === "1 h 02 min");
   check("iso timestamp", isoTimestamp(1_700_000_000, 5) === "2023-11-14T22:13:20.000000005Z");
   check("tcp flags: names in order", tcpFlagNames(0x12).join(",") === "SYN,ACK" && tcpFlagNames(0x01).join(",") === "FIN" && tcpFlagNames(0).length === 0);
+}
+
+// ---- 10. display filters (real Wasm parser + filter language) ----
+{
+  const u16be = (v: number) => Buffer.from([v >> 8, v & 0xff]);
+  const eth = (type: number, payload: Buffer) =>
+    Buffer.concat([Buffer.from([0xaa, 0xbb, 0xcc, 0, 0, 1, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66]), u16be(type), payload]);
+  const ip4 = (proto: number, src: number[], dst: number[], l4: Buffer) =>
+    Buffer.concat([Buffer.from([0x45, 0]), u16be(20 + l4.length), Buffer.from([0, 0, 0, 0, 64, proto, 0, 0, ...src, ...dst]), l4]);
+  const tcp = (sp: number, dp: number, flags: number) =>
+    Buffer.concat([u16be(sp), u16be(dp), Buffer.alloc(8), Buffer.from([0x50, flags]), Buffer.alloc(6)]);
+  const udp = (sp: number, dp: number) => Buffer.concat([u16be(sp), u16be(dp), Buffer.from([0, 8, 0, 0])]);
+
+  const packets = [
+    eth(0x0800, ip4(6, [10, 0, 0, 1], [10, 0, 0, 2], tcp(443, 51234, 0x12))), // 0: TCP SYN,ACK
+    eth(0x0800, ip4(17, [10, 0, 0, 2], [10, 0, 0, 3], udp(40000, 53))), // 1: DNS
+    eth(0x0800, ip4(1, [10, 0, 0, 3], [10, 0, 0, 4], Buffer.from([8, 0, 0, 0, 0, 1, 0, 1]))), // 2: ICMP
+    eth(0x0800, ip4(6, [10, 0, 0, 5], [10, 0, 0, 6], tcp(51235, 80, 0x02))), // 3: TCP SYN
+  ];
+  const parts: Buffer[] = [u32(0xa1b2c3d4), u16(2), u16(4), u32(0), u32(0), u32(65535), u32(1)];
+  packets.forEach((d, i) => parts.push(u32(100 + i), u32(0), u32(d.length), u32(d.length), d));
+
+  const { msgs, index } = await run(toFile(Buffer.concat(parts), "filter.pcap"));
+  if (index) {
+    const out: WorkerOut[] = [];
+    runFilter(index, "tcp and port 443", 42, (m) => out.push(m));
+    const matched = out.find((m) => m.type === "filtered");
+    check(
+      "filter: tcp and port 443 (real Wasm)",
+      matched?.type === "filtered" && matched.requestId === 42 && Array.from(matched.indexes).join(",") === "0",
+      matched?.type === "filtered" ? Array.from(matched.indexes).join(",") : JSON.stringify(matched),
+    );
+
+    const out2: WorkerOut[] = [];
+    runFilter(index, "", 43, (m) => out2.push(m));
+    const all = out2.find((m) => m.type === "filtered");
+    check("filter: empty query matches everything", all?.type === "filtered" && all.indexes.length === 4);
+
+    const out3: WorkerOut[] = [];
+    runFilter(index, "syn and not ack", 44, (m) => out3.push(m));
+    const syn = out3.find((m) => m.type === "filtered");
+    check(
+      "filter: syn and not ack",
+      syn?.type === "filtered" && Array.from(syn.indexes).join(",") === "3",
+      syn?.type === "filtered" ? Array.from(syn.indexes).join(",") : JSON.stringify(syn),
+    );
+
+    const badOut: WorkerOut[] = [];
+    runFilter(index, "bogus_term", 45, (m) => badOut.push(m));
+    const bad = badOut.find((m) => m.type === "error");
+    check(
+      "filter: unknown term reports a plain message and a position",
+      bad?.type === "error" && bad.scope === "filter" && bad.requestId === 45 && bad.message.includes("bogus_term") &&
+        typeof bad.position === "number" && !bad.message.includes("at character"),
+      JSON.stringify(bad),
+    );
+
+    // .0-.3 covers pkt0 (.1/.2), pkt1 (.2/.3), pkt2's source .3 (dst .4 is outside);
+    // pkt3 (.5/.6) is entirely outside the range.
+    const cidrOut: WorkerOut[] = [];
+    runFilter(index, "10.0.0.0/30", 46, (m) => cidrOut.push(m));
+    const cidr = cidrOut.find((m) => m.type === "filtered");
+    check(
+      "filter: CIDR range",
+      cidr?.type === "filtered" && Array.from(cidr.indexes).join(",") === "0,1,2",
+      cidr?.type === "filtered" ? Array.from(cidr.indexes).join(",") : JSON.stringify(cidr),
+    );
+
+    index.free();
+  } else {
+    check("filter: index available", false, "parse failed");
+  }
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);

@@ -2,7 +2,7 @@
 /// parsing, so the React UI thread never blocks.
 import init, { link_preview, parse_pcap_bytes, type PcapIndex } from "../pkg/pcap_engine";
 import type { WorkerIn, WorkerOut } from "../lib/messages";
-import { dissectPacket, parseFile } from "../lib/parse-file";
+import { dissectPacket, parseFile, runFilter } from "../lib/parse-file";
 
 // Minimal typing for the worker global. Avoids pulling the "webworker" lib
 // into the same tsconfig as the DOM lib.
@@ -47,5 +47,11 @@ ctx.onmessage = async (event: MessageEvent<WorkerIn>) => {
       return;
     }
     await dissectPacket(engine, current.file, current.index, msg.index, emit);
+  } else if (msg.type === "filter") {
+    if (!current) {
+      emit({ type: "error", message: "No capture is loaded.", scope: "filter", requestId: msg.requestId });
+      return;
+    }
+    runFilter(current.index, msg.query, msg.requestId, emit);
   }
 };

@@ -11,6 +11,12 @@ export interface Engine {
   link_preview(packet: Uint8Array, linktype: number): unknown;
 }
 
+/** Parsed error shape from a rejected Rust `Result`, when it has one. */
+interface FilterErrorLike {
+  message?: unknown;
+  position?: unknown;
+}
+
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -108,5 +114,24 @@ export async function dissectPacket(
     emit({ type: "packet", index: packetIndex, preview });
   } catch (e) {
     emit({ type: "error", message: errorMessage(e), scope: "dissect" });
+  }
+}
+
+/**
+ * Run a display filter (see pcap-engine/src/filter.rs for the query syntax)
+ * and emit the matching packet indexes. `requestId` is echoed back so the
+ * caller can drop a stale reply if a newer query has already been sent.
+ */
+export function runFilter(index: PcapIndex, query: string, requestId: number, emit: Emit): void {
+  try {
+    const indexes = Uint32Array.from(index.filter(query) as number[]);
+    emit({ type: "filtered", requestId, indexes }, [indexes.buffer] as Transferable[]);
+  } catch (e) {
+    // The Rust filter() rejects with a plain {message, position} object
+    // (see pcap-engine/src/lib.rs), not the JsError string other calls use.
+    const parsed = e as FilterErrorLike;
+    const message = typeof parsed?.message === "string" ? parsed.message : errorMessage(e);
+    const position = typeof parsed?.position === "number" ? parsed.position : undefined;
+    emit({ type: "error", message, scope: "filter", position, requestId });
   }
 }

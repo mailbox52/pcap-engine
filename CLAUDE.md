@@ -43,8 +43,10 @@ pcap-engine/
 - **Known limit:** rows are 24 px, so 1M packets make a 24M px scroll area. Chrome allows about 33M px, Firefox about 17.9M px (roughly 745k rows). Beyond that in Firefox the list needs a windowing workaround.
 - **Phase 3 confirmed in a real browser**, including a 1,000,000-packet capture (a browser freeze seen once in dev mode on the developer's laptop did not recur and was put down to the machine; 200k packets was always smooth).
 - **Phase 4a is done and confirmed in a browser.** Order of work: push, wait for the GitHub Actions run to rebuild `src/pkg` (it also runs the new Rust tests and clippy on the wasm32 target, which were only run natively when the code was written), `git pull`, then `npm run verify` (now 41 checks; the protocol ones only pass against the rebuilt Wasm) and `npm run dev`. The main-thread store is now about 60 bytes per packet (about 60 MB per million).
-- **Phase 4b is written:** `SummaryPanel.tsx` above the list. Same order of work as before: push, wait for the Actions run to rebuild `src/pkg`, `git pull`, then `npm run verify` (now 49 checks; the 5 summary ones only pass against the rebuilt Wasm). The list layout was also tightened so the Info column is visible without horizontal scrolling at typical widths.
-- **Next:** confirm 4b in a browser; then 4c filters, 4d bundled sample. (4e, the privacy note, is already on the page.)
+- **Phase 4b is done and confirmed in a browser** (screenshot with `sample.pcap`: 3,000 packets, 30.38 s, 685 KB, protocol bars, 10 top talkers).
+- **Phase 4c is written:** `pcap-engine/src/filter.rs` is a small display-filter language (protocols, TCP flags, addresses/CIDR, ports, length comparisons, `and`/`or`/`not`/parens — see the module doc comment for the full grammar), exposed as `PcapIndex.filter(query)`. 13 Rust tests, clippy clean, ~10 ms on 1,000,000 packets natively. `FilterBar.tsx` is the query box (debounced, clickable examples, shows match count or the error text); `PacketList.tsx` now takes an optional `indexes` prop so it draws only the filtered rows while keyboard nav (arrows/Home/End/PageUp/Down) still works against the filtered order. A `requestId` on each `filter` message means a reply for a query the user has since edited is dropped rather than shown (handles fast typing). Wired into `PcapUploader.tsx`.
+- **Checked so far:** Rust tests + clippy; typecheck; production build; `FilterBar` rendered on the server in four states (placeholder examples, error, pending, disabled); the worker round trip (`runFilter` in `parse-file.ts`) exercised end to end, including the error shape (`{message, position}`, not the `JsError` string other calls use — `PcapIndex.filter` throws a plain object via `js_sys::Reflect`, see `pcap-engine/src/lib.rs`); `npm run verify` extended to 51 checks against a hand-written reference-filter shim standing in for the not-yet-built Wasm method. **Not yet checked:** the real Wasm build (needs the CI run), or anything in a browser.
+- **Next:** push, wait for Actions, `git pull`, `npm run verify` (the 5 new filter checks only pass against the rebuilt Wasm) and confirm 4c in a browser; then 4d bundled sample. (4e, the privacy note, is already on the page.)
 
 ## Design Decisions (v1)
 - **Whole-file parse, size-capped.** The worker reads the file into memory, copies it into Wasm, and parses. Cap at **256 MB** with a clear error above that. Streaming / chunked parsing is a v2 feature.
@@ -110,13 +112,14 @@ Build after Phases 1-3 work end to end. Each item is independent, so ship them i
 - [x] Protocol breakdown (count and percent, with bars).
 - [x] Top talkers: top 10 addresses by bytes. An address counts every packet it appears in, once per packet, in either direction.
 - [x] Computed in Rust in one pass (`pcap-engine/src/summary.rs`, 8 tests; about 120 ms natively for 1M packets) and sent as a single `summary` message just before `done`.
-- [ ] Seen in a browser.
+- [x] Seen in a browser (confirmed with `sample.pcap`: 3,000 packets, protocol bars, 10 top talkers).
 
-**4c. Search and filters**
-- [ ] A search box accepting simple terms: a protocol (`tcp`), an IP (`192.168.1.5`), or a port (`port 443`). Combine with `and`.
-- [ ] Filtering runs in the worker over the columnar arrays and returns a list of matching row indexes. The UI never scans all packets.
-- [ ] The counter shows "N of M packets" while filtered.
-- [ ] Invalid filter text shows an inline hint, not an error state.
+**4c. Search and filters** (written; needs the CI Wasm build and a browser check)
+- [x] A query box, well beyond the original scope: protocol keywords (`tcp` `udp` `dns` `icmp` `icmpv6` `arp` `ipv4` `ipv6` `other`), TCP flags (`syn` `ack` `fin` `rst` `psh` `urg`), addresses and CIDR ranges (`10.0.0.1`, `10.0.0.0/24`, IPv6 too), `host`/`src`/`dst`, `port`/`sport`/`dport`, `len > N` (also `>=` `<` `<=` `=`), and `and`/`or`/`not` with parentheses (also `&&` `||` `!`). Grammar and precedence documented at the top of `pcap-engine/src/filter.rs`.
+- [x] Filtering runs in Rust in the worker over the columnar arrays and returns matching packet indexes as a transferred `Uint32Array`; the list only ever draws the rows currently in view. About 10 ms for a 1,000,000-packet capture natively.
+- [x] The bar shows "N of M packets" while filtered; typing is debounced (150 ms) and a `requestId` on each `filter` request means a stale reply (from a query the user has since changed) is dropped rather than shown.
+- [x] Invalid filter text shows the error message below the box (input border turns red); the list underneath keeps showing its last good result rather than going blank.
+- [ ] Seen in a browser.
 
 **4d. Sample capture**
 - [ ] A "Try a sample" button loads a small bundled `.pcap` (under 200 KB, in `public/`), fetched as a static file and fed through the same worker path as a user upload.
@@ -128,11 +131,12 @@ Build after Phases 1-3 work end to end. Each item is independent, so ship them i
 Additional worker messages for Phase 4:
 ```ts
 type WorkerIn =
-  | { type: 'filter'; query: string };            // added
+  | { type: 'filter'; query: string; requestId: number };  // requestId lets a stale reply be dropped
 
 type WorkerOut =
   | { type: 'summary'; summary: CaptureSummary }   // shape in src/lib/messages.ts
-  | { type: 'filtered'; indexes: Uint32Array }    // transferred
+  | { type: 'filtered'; requestId: number; indexes: Uint32Array }    // transferred
+
   | { type: 'filterError'; message: string };
 ```
 

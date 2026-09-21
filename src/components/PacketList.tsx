@@ -12,6 +12,13 @@ interface Props {
   store: PacketStore;
   /** Number of packets available so far. Changing it re-renders the list. */
   count: number;
+  /**
+   * When a filter is active, the packet index for each visible row, in
+   * display order. Row 0 shows packet `indexes[0]`, and so on. Arrow-key
+   * navigation and Home/End move through this list, not the raw packet
+   * order. Omit (or pass all packets) when no filter is active.
+   */
+  indexes?: Uint32Array;
   selected: number | null;
   /** Rows are only clickable once the whole capture is loaded. */
   interactive: boolean;
@@ -19,42 +26,47 @@ interface Props {
 }
 
 /** Scrolling packet list. Only the rows in view (plus a small overscan) exist in the DOM. */
-export default function PacketList({ store, count, selected, interactive, onSelect }: Props) {
+export default function PacketList({ store, count, indexes, selected, interactive, onSelect }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rowCount = indexes ? indexes.length : count;
+  const packetAt = (row: number) => (indexes ? indexes[row] : row);
+  // Position of `selected` within the current (possibly filtered) row order, or -1.
+  const selectedRow = selected === null ? -1 : indexes ? indexes.indexOf(selected) : selected;
 
   const virtualizer = useVirtualizer({
-    count,
+    count: rowCount,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 20,
   });
 
-  // Start each new capture at the top.
+  // Start at the top for a new capture, or whenever the filter changes.
   useEffect(() => {
-    if (count === 0) scrollRef.current?.scrollTo({ top: 0 });
-  }, [count]);
+    scrollRef.current?.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count === 0, indexes]);
 
-  const move = (to: number) => {
-    const next = Math.max(0, Math.min(count - 1, to));
+  const moveToRow = (row: number) => {
+    const next = Math.max(0, Math.min(rowCount - 1, row));
     virtualizer.scrollToIndex(next, { align: "auto" });
-    onSelect(next);
+    onSelect(packetAt(next));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!interactive || count === 0) return;
+    if (!interactive || rowCount === 0) return;
     const page = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 400) / ROW_HEIGHT) - 1);
-    const cur = selected ?? -1;
+    const cur = selectedRow;
     const targets: Record<string, number> = {
       ArrowDown: cur + 1,
       ArrowUp: cur === -1 ? 0 : cur - 1,
       PageDown: cur + page,
       PageUp: cur - page,
       Home: 0,
-      End: count - 1,
+      End: rowCount - 1,
     };
     if (e.key in targets) {
       e.preventDefault();
-      move(targets[e.key]);
+      moveToRow(targets[e.key]);
     }
   };
 
@@ -64,7 +76,7 @@ export default function PacketList({ store, count, selected, interactive, onSele
       tabIndex={0}
       onKeyDown={onKeyDown}
       role="grid"
-      aria-rowcount={count}
+      aria-rowcount={rowCount}
       aria-label="Packets"
       className="h-[28rem] overflow-auto rounded-lg border border-zinc-800 text-xs tabular-nums outline-none focus-visible:border-sky-500/60"
     >
@@ -81,7 +93,7 @@ export default function PacketList({ store, count, selected, interactive, onSele
 
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((v) => {
-            const i = v.index;
+            const i = packetAt(v.index);
             const isSelected = i === selected;
             const src = addressText(store, i, "src");
             const dst = addressText(store, i, "dst");

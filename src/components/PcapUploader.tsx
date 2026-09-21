@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { CaptureSummary, LinkPreview, Stage, WorkerIn, WorkerOut } from "@/lib/messages";
 import { PacketStore } from "@/lib/packet-store";
 import PacketDetail from "./PacketDetail";
+import FilterBar, { type FilterState } from "./FilterBar";
 import PacketList from "./PacketList";
 import SummaryPanel from "./SummaryPanel";
 
@@ -23,6 +24,9 @@ interface State {
   selected: number | null;
   detail: LinkPreview | null;
   detailError: string | null;
+  filter: FilterState;
+  /** requestId of the filter query currently reflected in `filter`. */
+  filterRequestId: number;
 }
 
 const initial: State = {
@@ -40,13 +44,17 @@ const initial: State = {
   selected: null,
   detail: null,
   detailError: null,
+  filter: { indexes: undefined, error: null, errorPosition: null, pending: false },
+  filterRequestId: 0,
 };
 
 type Action =
   | { type: "start"; fileName: string }
   | { type: "msg"; msg: WorkerOut }
   | { type: "fail"; message: string }
-  | { type: "select"; index: number };
+  | { type: "select"; index: number }
+  | { type: "filter-pending"; requestId: number }
+  | { type: "filter-cleared"; requestId: number };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -56,6 +64,12 @@ function reducer(state: State, action: Action): State {
       return { ...state, status: "error", error: action.message };
     case "select":
       return { ...state, selected: action.index, detail: null, detailError: null };
+    case "filter-pending":
+      // A new query was sent; mark it pending but keep showing the previous
+      // result (avoids a flash of "0 packets" while typing).
+      return { ...state, filterRequestId: action.requestId, filter: { ...state.filter, pending: true, error: null } };
+    case "filter-cleared":
+      return { ...state, filterRequestId: action.requestId, filter: { indexes: undefined, error: null, errorPosition: null, pending: false } };
     case "msg": {
       const m = action.msg;
       switch (m.type) {
@@ -67,6 +81,13 @@ function reducer(state: State, action: Action): State {
           return { ...state, received: state.received + m.tsSec.length };
         case "summary":
           return { ...state, summary: m.summary };
+        case "filtered":
+          // A stale reply for a query the user has since changed; drop it.
+          if (m.requestId !== state.filterRequestId) return state;
+          return {
+            ...state,
+            filter: { indexes: m.indexes, error: null, errorPosition: null, pending: false },
+          };
         case "done":
           return {
             ...state,
@@ -83,6 +104,13 @@ function reducer(state: State, action: Action): State {
           return m.index === state.selected ? { ...state, detail: m.preview, detailError: null } : state;
         case "error":
           if (m.scope === "dissect") return { ...state, detailError: m.message };
+          if (m.scope === "filter") {
+            if (m.requestId !== state.filterRequestId) return state;
+            return {
+              ...state,
+              filter: { ...state.filter, error: m.message, errorPosition: m.position ?? null, pending: false },
+            };
+          }
           return { ...state, status: "error", stage: null, error: m.message };
         default:
           return state;
@@ -103,6 +131,7 @@ export default function PcapUploader() {
   const [store] = useState(() => new PacketStore());
   const workerRef = useRef<Worker | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const nextRequestId = useRef(1);
 
   const stopWorker = useCallback(() => {
     workerRef.current?.terminate();
@@ -149,6 +178,18 @@ export default function PcapUploader() {
   const selectPacket = useCallback((index: number) => {
     dispatch({ type: "select", index });
     const msg: WorkerIn = { type: "dissect", index };
+    workerRef.current?.postMessage(msg);
+  }, []);
+
+  const runQuery = useCallback((query: string) => {
+    const requestId = nextRequestId.current++;
+    // An empty query always means "show everything"; skip the worker round trip.
+    if (query.trim() === "") {
+      dispatch({ type: "filter-cleared", requestId });
+      return;
+    }
+    dispatch({ type: "filter-pending", requestId });
+    const msg: WorkerIn = { type: "filter", query, requestId };
     workerRef.current?.postMessage(msg);
   }, []);
 
@@ -250,10 +291,22 @@ export default function PcapUploader() {
           )}
 
           {showList && (
-            <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+            <div className="mt-6">
+              <FilterBar
+                state={state.filter}
+                onQuery={runQuery}
+                disabled={state.status !== "done"}
+                totalPackets={state.received}
+              />
+            </div>
+          )}
+
+          {showList && (
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
               <PacketList
                 store={store}
                 count={state.received}
+                indexes={state.filter.indexes}
                 selected={state.selected}
                 interactive={state.status === "done"}
                 onSelect={selectPacket}

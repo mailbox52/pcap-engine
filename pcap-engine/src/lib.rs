@@ -5,6 +5,7 @@
 
 pub mod core;
 pub mod dissect;
+pub mod filter;
 pub mod link;
 pub mod summary;
 
@@ -91,6 +92,19 @@ impl PcapIndex {
     /// Protocol-specific value per packet (TCP flags, ICMP type/code, ARP op, ...).
     pub fn detail(&self, start: u32, end: u32) -> Vec<u16> {
         self.inner.detail[range(self.inner.len(), start, end)].to_vec()
+    }
+
+    /// Indexes of the packets matching a filter such as `tcp and port 443`.
+    /// An empty query matches every packet. Throws a readable error for a bad
+    /// filter; the error's `message` field is the plain text (no position
+    /// suffix) and `position` is a 0-based character offset into the query.
+    pub fn filter(&self, query: &str) -> Result<Vec<u32>, JsValue> {
+        filter::filter(&self.inner, query).map_err(|e| {
+            let obj = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(&obj, &"message".into(), &e.message.into());
+            let _ = js_sys::Reflect::set(&obj, &"position".into(), &(e.position as u32).into());
+            obj.into()
+        })
     }
 
     /// Whole-capture summary: totals, duration, protocol breakdown, top talkers.
