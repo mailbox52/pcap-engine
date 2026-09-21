@@ -9,6 +9,10 @@ export class PcapIndex {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * 32 bytes per packet: 16-byte source address then 16-byte destination.
+     */
+    addr(start: number, end: number): Uint8Array;
     cap_len(start: number, end: number): Uint32Array;
     /**
      * False if the file was truncated or corrupt; packets before the
@@ -17,9 +21,18 @@ export class PcapIndex {
     complete(): boolean;
     count(): number;
     /**
+     * Protocol-specific value per packet (TCP flags, ICMP type/code, ARP op, ...).
+     */
+    detail(start: number, end: number): Uint16Array;
+    dst_port(start: number, end: number): Uint16Array;
+    /**
      * "pcap" or "pcapng".
      */
     format(): string;
+    /**
+     * 4, 6, or 0 per packet.
+     */
+    ip_version(start: number, end: number): Uint8Array;
     issues(): string[];
     linktype(start: number, end: number): Uint16Array;
     /**
@@ -27,6 +40,11 @@ export class PcapIndex {
      */
     offset(start: number, end: number): Uint32Array;
     orig_len(start: number, end: number): Uint32Array;
+    /**
+     * Protocol id per packet (see `dissect::PROTO_*`).
+     */
+    proto(start: number, end: number): Uint8Array;
+    src_port(start: number, end: number): Uint16Array;
     ts_nsec(start: number, end: number): Uint32Array;
     ts_sec(start: number, end: number): Uint32Array;
 }
@@ -49,14 +67,20 @@ export interface InitOutput {
     readonly __wbg_pcapindex_free: (a: number, b: number) => void;
     readonly link_preview: (a: number, b: number, c: number) => [number, number, number];
     readonly parse_pcap_bytes: (a: number, b: number) => [number, number, number];
+    readonly pcapindex_addr: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_cap_len: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_complete: (a: number) => number;
     readonly pcapindex_count: (a: number) => number;
+    readonly pcapindex_detail: (a: number, b: number, c: number) => [number, number];
+    readonly pcapindex_dst_port: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_format: (a: number) => [number, number];
+    readonly pcapindex_ip_version: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_issues: (a: number) => [number, number];
     readonly pcapindex_linktype: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_offset: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_orig_len: (a: number, b: number, c: number) => [number, number];
+    readonly pcapindex_proto: (a: number, b: number, c: number) => [number, number];
+    readonly pcapindex_src_port: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_ts_nsec: (a: number, b: number, c: number) => [number, number];
     readonly pcapindex_ts_sec: (a: number, b: number, c: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

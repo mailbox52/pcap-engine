@@ -22,6 +22,18 @@ export class PcapIndex {
         wasm.__wbg_pcapindex_free(ptr, 0);
     }
     /**
+     * 32 bytes per packet: 16-byte source address then 16-byte destination.
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint8Array}
+     */
+    addr(start, end) {
+        const ret = wasm.pcapindex_addr(this.__wbg_ptr, start, end);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * @param {number} start
      * @param {number} end
      * @returns {Uint32Array}
@@ -49,6 +61,29 @@ export class PcapIndex {
         return ret >>> 0;
     }
     /**
+     * Protocol-specific value per packet (TCP flags, ICMP type/code, ARP op, ...).
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint16Array}
+     */
+    detail(start, end) {
+        const ret = wasm.pcapindex_detail(this.__wbg_ptr, start, end);
+        var v1 = getArrayU16FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 2, 2);
+        return v1;
+    }
+    /**
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint16Array}
+     */
+    dst_port(start, end) {
+        const ret = wasm.pcapindex_dst_port(this.__wbg_ptr, start, end);
+        var v1 = getArrayU16FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 2, 2);
+        return v1;
+    }
+    /**
      * "pcap" or "pcapng".
      * @returns {string}
      */
@@ -63,6 +98,18 @@ export class PcapIndex {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * 4, 6, or 0 per packet.
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint8Array}
+     */
+    ip_version(start, end) {
+        const ret = wasm.pcapindex_ip_version(this.__wbg_ptr, start, end);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
     }
     /**
      * @returns {string[]}
@@ -105,6 +152,29 @@ export class PcapIndex {
         const ret = wasm.pcapindex_orig_len(this.__wbg_ptr, start, end);
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Protocol id per packet (see `dissect::PROTO_*`).
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint8Array}
+     */
+    proto(start, end) {
+        const ret = wasm.pcapindex_proto(this.__wbg_ptr, start, end);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {number} start
+     * @param {number} end
+     * @returns {Uint16Array}
+     */
+    src_port(start, end) {
+        const ret = wasm.pcapindex_src_port(this.__wbg_ptr, start, end);
+        var v1 = getArrayU16FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 2, 2);
         return v1;
     }
     /**
@@ -236,6 +306,11 @@ function getArrayU16FromWasm0(ptr, len) {
 function getArrayU32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
 let cachedDataViewMemory0 = null;
