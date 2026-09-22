@@ -124,7 +124,7 @@ export async function dissectPacket(
  */
 export function runFilter(index: PcapIndex, query: string, requestId: number, emit: Emit): void {
   try {
-    const indexes = Uint32Array.from(index.filter(query) as number[]);
+    const indexes = Uint32Array.from(index.filter(query));
     emit({ type: "filtered", requestId, indexes }, [indexes.buffer] as Transferable[]);
   } catch (e) {
     // The Rust filter() rejects with a plain {message, position} object
