@@ -4,6 +4,7 @@
  * still behaves. Usage: npm run verify
  */
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { initSync, link_preview, parse_pcap_bytes } from "../src/pkg/pcap_engine.js";
 import { BATCH_SIZE, MAX_FILE_BYTES, type WorkerOut } from "../src/lib/messages";
 import { dissectPacket, parseFile, runFilter } from "../src/lib/parse-file";
@@ -363,6 +364,37 @@ async function run(file: File) {
     index.free();
   } else {
     check("filter: index available", false, "parse failed");
+  }
+}
+
+// ---- 11. bundled sample capture (public/sample.pcap, used by "Try a sample") ----
+{
+  const bundledPath = fileURLToPath(new URL("../public/sample.pcap", import.meta.url));
+  let bytes: Buffer | null = null;
+  try {
+    bytes = readFileSync(bundledPath);
+  } catch {
+    check("sample: public/sample.pcap exists", false, bundledPath);
+  }
+  if (bytes) {
+    check("sample: under the 200 KB budget", bytes.length < 200 * 1024, `${bytes.length} bytes`);
+    const { msgs, index } = await run(toFile(bytes, "sample.pcap"));
+    const started = msgs.find((m) => m.type === "started");
+    const done = msgs.find((m) => m.type === "done");
+    check(
+      "sample: parses as a complete pcap capture",
+      started?.type === "started" && started.format === "pcap" && done?.type === "done" && done.complete,
+      JSON.stringify(started) + " " + JSON.stringify(done),
+    );
+    const summary = msgs.find((m) => m.type === "summary");
+    check(
+      "sample: has a mix of protocols (TCP, UDP/DNS, ICMP, ARP)",
+      summary?.type === "summary" && summary.summary.protocols.length >= 4,
+    );
+    if (index) {
+      check("sample: has both TCP and ARP traffic to filter on", index.filter("tcp").length > 0 && index.filter("arp").length > 0);
+      index.free();
+    }
   }
 }
 

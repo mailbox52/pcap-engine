@@ -175,6 +175,17 @@ export default function PcapUploader() {
     [stopWorker, store],
   );
 
+  const loadSample = useCallback(async () => {
+    try {
+      const res = await fetch("/sample.pcap");
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      openFile(new File([blob], "sample.pcap"));
+    } catch (e) {
+      dispatch({ type: "fail", message: `Could not load the sample capture: ${String(e)}` });
+    }
+  }, [openFile]);
+
   const selectPacket = useCallback((index: number) => {
     dispatch({ type: "select", index });
     const msg: WorkerIn = { type: "dissect", index };
@@ -234,6 +245,18 @@ export default function PcapUploader() {
           }}
         />
       </div>
+
+      <p className="mt-3 text-center text-xs text-zinc-500">
+        Don&rsquo;t have a capture handy?{" "}
+        <button
+          type="button"
+          onClick={loadSample}
+          disabled={working}
+          className="text-sky-400 underline decoration-dotted underline-offset-2 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Try a sample capture
+        </button>
+      </p>
 
       {state.status !== "idle" && (
         <section className="mt-8">
